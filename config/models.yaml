@@ -1,0 +1,37 @@
+# Ollama Model Configurations for Earnings Call Analyzer
+
+models:
+  # Primary sentiment analysis model
+  sentiment:
+    name: "llama3.1:8b"
+    temperature: 0.1
+    max_tokens: 500
+    description: "Main model for contextual sentiment analysis"
+    
+  # Contextualization assessment model
+  contextualization:
+    name: "llama3.1:8b"
+    temperature: 0.1
+    max_tokens: 300
+    description: "Model for assessing numerical contextualization quality"
+  
+  # Alternative models (for future use or experimentation)
+  alternatives:
+    - name: "mistral"
+      use_case: "Faster processing, slightly lower accuracy"
+    - name: "phi3"
+      use_case: "Lightest weight, good for resource-constrained environments"
+    - name: "llama3.1:70b"
+      use_case: "Highest accuracy, requires significant resources"
+
+# Model selection strategies
+selection_strategy:
+  default: "llama3.1:8b"
+  fast_mode: "phi3"
+  high_accuracy: "llama3.1:70b"
+  
+# Chunking strategies for long transcripts
+chunking:
+  default_chunk_size: 512
+  overlap: 128
+  max_chunks_per_transcript: 50
