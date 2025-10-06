@@ -1,10 +1,10 @@
 """
-Advanced NLP Preprocessing Module
+Advanced NLP Preprocessing Module - UPDATED FOR MULTIPLE PHRASE FILES
 Includes: NER, lemmatization, multi-word phrase detection, custom stopwords
 """
 import re
 import json
-from typing import List, Dict, Tuple, Set, Optional
+from typing import List, Dict, Tuple, Set, Optional, Union
 from pathlib import Path
 import nltk
 from nltk.stem import WordNetLemmatizer
@@ -38,68 +38,114 @@ except ImportError:
 
 
 class FinancialPhraseDetector:
-    """Detects multi-word financial and accounting phrases"""
+    """Detects multi-word financial and accounting phrases - SUPPORTS MULTIPLE FILES"""
     
-    def __init__(self, phrases_file: Optional[Path] = None):
+    def __init__(self, phrases_files: Union[Path, List[Path], None] = None):
         """
-        Initialize phrase detector
+        Initialize phrase detector with support for multiple phrase files
         
         Args:
-            phrases_file: Path to JSON file with financial phrases
+            phrases_files: Single Path, list of Paths, or None
         """
-        self.phrases = self._load_financial_phrases(phrases_file)
+        # Convert single Path to list for uniform handling
+        if isinstance(phrases_files, Path):
+            phrases_files = [phrases_files]
+        elif phrases_files is None:
+            phrases_files = []
+        
+        self.phrases = self._load_financial_phrases(phrases_files)
         # Sort by length (longest first) for proper matching
         self.sorted_phrases = sorted(self.phrases, key=len, reverse=True)
-    
-    def _load_financial_phrases(self, phrases_file: Optional[Path]) -> Set[str]:
-        """Load financial phrases from JSON or use defaults"""
-        if phrases_file and phrases_file.exists():
-            with open(phrases_file, 'r') as f:
-                data = json.load(f)
-                return set(phrase.lower() for phrase in data.get('phrases', []))
         
-        # Default financial phrases
+        print(f"✓ Phrase detector initialized with {len(self.phrases)} total phrases")
+    
+    def _load_financial_phrases(self, phrases_files: List[Path]) -> Set[str]:
+        """
+        Load financial phrases from multiple JSON files
+        
+        Args:
+            phrases_files: List of Path objects to phrase JSON files
+            
+        Returns:
+            Set of all phrases (lowercase)
+        """
+        all_phrases = set()
+        
+        if not phrases_files:
+            print("No phrase files specified, loading default phrases...")
+            return self._get_default_phrases()
+        
+        for phrase_file in phrases_files:
+            if not phrase_file.exists():
+                print(f"⚠️  Warning: Phrase file not found: {phrase_file}")
+                continue
+            
+            try:
+                with open(phrase_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                phrases = []
+                
+                # Handle different JSON structures
+                if 'phrases' in data:
+                    # Simple list format (e.g., financial_phrases.json)
+                    phrases = data['phrases']
+                    
+                elif 'categories' in data:
+                    # Categorized format (e.g., oil_gas_phrases.json, indonesian_titles.json)
+                    for category, phrase_list in data['categories'].items():
+                        if isinstance(phrase_list, list):
+                            phrases.extend(phrase_list)
+                        else:
+                            print(f"⚠️  Warning: Category '{category}' in {phrase_file.name} is not a list")
+                
+                else:
+                    print(f"⚠️  Warning: Unknown JSON format in {phrase_file.name}")
+                    print(f"    Expected 'phrases' (list) or 'categories' (dict) at top level")
+                    continue
+                
+                # Add to set (lowercased for case-insensitive matching)
+                phrase_count = len(phrases)
+                all_phrases.update(p.lower() for p in phrases if isinstance(p, str))
+                
+                print(f"✓ Loaded {phrase_count} phrases from {phrase_file.name}")
+                
+            except json.JSONDecodeError as e:
+                print(f"❌ Error parsing JSON from {phrase_file.name}: {e}")
+            except Exception as e:
+                print(f"❌ Error loading {phrase_file.name}: {e}")
+        
+        if not all_phrases:
+            print("⚠️  No phrases loaded from files, using default phrases")
+            return self._get_default_phrases()
+        
+        return all_phrases
+    
+    def _get_default_phrases(self) -> Set[str]:
+        """Get default financial phrases if no files loaded"""
         return {
-            # Financial metrics
+            # Core financial metrics
             'earnings per share', 'eps', 'return on equity', 'roe',
             'return on assets', 'roa', 'return on investment', 'roi',
-            'gross margin', 'operating margin', 'net margin', 'profit margin',
+            'gross margin', 'operating margin', 'net margin',
             'operating income', 'net income', 'operating cash flow',
-            'free cash flow', 'cash flow from operations',
-            'revenue growth', 'year over year', 'yoy', 'year on year',
-            'quarter over quarter', 'qoq', 'quarter on quarter',
-            'same store sales', 'comparable store sales',
+            'free cash flow', 'revenue growth', 'year over year', 'yoy',
+            'quarter over quarter', 'qoq',
             
             # Financial statements
             'balance sheet', 'income statement', 'cash flow statement',
-            'statement of operations', 'financial position',
             
-            # Business operations
+            # Business metrics
             'market share', 'customer acquisition', 'customer retention',
-            'average revenue per user', 'arpu', 'monthly active users', 'mau',
-            'daily active users', 'dau', 'churn rate', 'retention rate',
-            'lifetime value', 'ltv', 'customer lifetime value',
+            'average revenue per user', 'arpu',
             
-            # Forward-looking
-            'forward guidance', 'full year guidance', 'fiscal year',
-            'fiscal quarter', 'earnings guidance', 'revenue guidance',
-            
-            # Accounting terms
+            # Accounting
             'generally accepted accounting principles', 'gaap',
             'non gaap', 'adjusted earnings', 'adjusted ebitda',
-            'earnings before interest', 'ebit', 'ebitda',
-            'stock based compensation', 'share based compensation',
-            'deferred revenue', 'accrued expenses',
             
             # Corporate actions
-            'share repurchase', 'stock buyback', 'dividend payment',
-            'capital allocation', 'capital expenditure', 'capex',
-            'research and development', 'r and d', 'r&d',
-            'sales and marketing', 's&m', 'general and administrative', 'g&a',
-            
-            # Market conditions
-            'market conditions', 'competitive landscape', 'industry trends',
-            'macroeconomic environment', 'economic conditions',
+            'share repurchase', 'stock buyback', 'capital expenditure', 'capex',
+            'research and development', 'r and d', 'r&d'
         }
     
     def detect_phrases(self, text: str) -> List[Tuple[str, int, int]]:
@@ -198,10 +244,14 @@ class FinancialStopwords:
         
         # Load custom configuration if provided
         if custom_stopwords_file and custom_stopwords_file.exists():
-            with open(custom_stopwords_file, 'r') as f:
-                config = json.load(f)
-                self.preserve_words.update(config.get('preserve', []))
-                self.financial_stopwords.update(config.get('financial', []))
+            try:
+                with open(custom_stopwords_file, 'r') as f:
+                    config = json.load(f)
+                    self.preserve_words.update(config.get('preserve', []))
+                    self.financial_stopwords.update(config.get('financial', []))
+                    print(f"✓ Loaded custom stopwords from {custom_stopwords_file.name}")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not load stopwords config: {e}")
         
         # Final stopword set
         self.stopwords = (self.standard_stopwords | self.financial_stopwords) - self.preserve_words
@@ -221,6 +271,10 @@ class NamedEntityRecognizer:
     def __init__(self):
         """Initialize NER"""
         self.enabled = SPACY_AVAILABLE and nlp is not None
+        if self.enabled:
+            print("✓ Named Entity Recognition enabled (spaCy)")
+        else:
+            print("⚠️  Named Entity Recognition disabled (spaCy not available)")
     
     def extract_entities(self, text: str) -> Dict[str, List[str]]:
         """
@@ -301,11 +355,11 @@ class NamedEntityRecognizer:
 
 
 class AdvancedTextPreprocessor:
-    """Complete advanced preprocessing pipeline"""
+    """Complete advanced preprocessing pipeline - UPDATED FOR MULTIPLE PHRASE FILES"""
     
     def __init__(
         self,
-        phrases_file: Optional[Path] = None,
+        phrases_files: Union[Path, List[Path], None] = None,
         stopwords_file: Optional[Path] = None,
         enable_ner: bool = True,
         enable_lemmatization: bool = True
@@ -314,20 +368,28 @@ class AdvancedTextPreprocessor:
         Initialize preprocessor
         
         Args:
-            phrases_file: Path to financial phrases JSON
+            phrases_files: Single Path, list of Paths to phrase JSON files, or None
             stopwords_file: Path to custom stopwords JSON
             enable_ner: Whether to use NER
             enable_lemmatization: Whether to lemmatize words
         """
-        self.phrase_detector = FinancialPhraseDetector(phrases_file)
+        print("\n" + "="*60)
+        print("INITIALIZING ADVANCED TEXT PREPROCESSOR")
+        print("="*60)
+        
+        self.phrase_detector = FinancialPhraseDetector(phrases_files)
         self.stopword_manager = FinancialStopwords(stopwords_file)
         self.ner = NamedEntityRecognizer() if enable_ner else None
         
         self.enable_lemmatization = enable_lemmatization
         if enable_lemmatization:
             self.lemmatizer = WordNetLemmatizer()
+            print("✓ Lemmatization enabled")
         else:
             self.lemmatizer = None
+            print("⚠️  Lemmatization disabled")
+        
+        print("="*60 + "\n")
     
     def preprocess(
         self,
