@@ -1,4 +1,4 @@
-# earnings_call_analyzer
+# Earnings Call Analysis Platform
 
 A comprehensive platform for analyzing earnings call transcripts using advanced NLP techniques including sentiment analysis, language complexity metrics, and numerical transparency assessment.
 
@@ -366,4 +366,3 @@ If you use this platform in research, please cite:
 ## Contact
 
 [Your contact information]
-
