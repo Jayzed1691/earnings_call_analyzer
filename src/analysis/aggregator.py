@@ -1,9 +1,9 @@
 """
-Main Analysis Aggregator
-Combines all analysis modules and orchestrates the complete pipeline
+Main Analysis Aggregator - Phase 2 Enhanced
+Combines all analysis modules including deception detection
 """
 from dataclasses import dataclass, asdict
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 import json
 from pathlib import Path
 from datetime import datetime
@@ -13,35 +13,47 @@ from src.analysis.sentiment.hybrid_scorer import HybridSentimentAnalyzer, Hybrid
 from src.analysis.complexity.readability import ComplexityAnalyzer, ComplexityScores
 from src.analysis.numerical.transparency import NumericalAnalyzer, NumericalScores
 
+# Phase 2A: Deception Detection Imports
+from src.analysis.deception.detector import DeceptionRiskAnalyzer, DeceptionRiskScore
+from src.analysis.deception.evasiveness import EvasivenessAnalyzer, EvasivenessScores
+from src.analysis.deception.question_evasion import QuestionEvasionDetector, QuestionResponse
+
+from config.settings import settings
+
 
 @dataclass
 class ComprehensiveAnalysisResult:
-    """Complete analysis results for a transcript"""
+    """Complete analysis results for a transcript - Phase 2 Enhanced"""
     # Metadata
     timestamp: str
     company_name: str
     quarter: str
     year: int
     
-    # Overall metrics
+    # Phase 1: Overall metrics
     overall_sentiment: HybridSentimentScores
     overall_complexity: ComplexityScores
     overall_numerical: NumericalScores
     
-    # Section-specific metrics
+    # Phase 1: Section-specific metrics
     prepared_remarks_sentiment: HybridSentimentScores
     qa_sentiment: HybridSentimentScores
     prepared_remarks_complexity: ComplexityScores
     qa_complexity: ComplexityScores
     
-    # Speaker-specific metrics (top 2: CEO, CFO)
+    # Phase 1: Speaker-specific metrics (top 2: CEO, CFO)
     ceo_metrics: Dict[str, Any]
     cfo_metrics: Dict[str, Any]
     
+    # Phase 2A: Deception Detection
+    deception_risk: Optional[DeceptionRiskScore] = None
+    evasiveness_scores: Optional[EvasivenessScores] = None
+    qa_analysis: Optional[List[QuestionResponse]] = None
+    
     # Key insights
-    key_findings: list
-    red_flags: list
-    strengths: list
+    key_findings: List[str]
+    red_flags: List[str]
+    strengths: List[str]
     
     # Raw transcript info
     word_count: int
@@ -49,24 +61,49 @@ class ComprehensiveAnalysisResult:
 
 
 class EarningsCallAnalyzer:
-    """Main analyzer that orchestrates all analysis modules"""
+    """Main analyzer that orchestrates all analysis modules including deception detection"""
     
-    def __init__(self, use_llm_features: bool = True):
+    def __init__(
+        self, 
+        use_llm_features: bool = True,
+        enable_deception_analysis: bool = True
+    ):
         """
         Initialize main analyzer
         
         Args:
             use_llm_features: Whether to use LLM-based features (slower but more accurate)
+            enable_deception_analysis: Whether to enable Phase 2A deception detection
         """
+        print("Initializing Earnings Call Analyzer...")
+        
+        # Phase 1 analyzers
         self.transcript_processor = TranscriptProcessor()
         self.sentiment_analyzer = HybridSentimentAnalyzer()
         self.complexity_analyzer = ComplexityAnalyzer()
         self.numerical_analyzer = NumericalAnalyzer(use_llm_contextualization=use_llm_features)
         self.use_llm = use_llm_features
+        
+        # Phase 2A: Deception analyzers
+        self.enable_deception = enable_deception_analysis and settings.ENABLE_DECEPTION_ANALYSIS
+        
+        if self.enable_deception:
+            print("  → Initializing deception detection modules...")
+            self.deception_analyzer = DeceptionRiskAnalyzer()
+            self.evasiveness_analyzer = EvasivenessAnalyzer()
+            self.qa_detector = QuestionEvasionDetector()
+            print("  ✓ Deception detection enabled")
+        else:
+            print("  → Deception detection disabled")
+            self.deception_analyzer = None
+            self.evasiveness_analyzer = None
+            self.qa_detector = None
+        
+        print("✓ Analyzer initialization complete\n")
     
     def analyze_transcript(self, file_path: str) -> ComprehensiveAnalysisResult:
         """
-        Perform complete analysis on a transcript
+        Perform complete analysis on a transcript (Phase 1 + Phase 2A)
         
         Args:
             file_path: Path to transcript file
@@ -75,8 +112,11 @@ class EarningsCallAnalyzer:
             ComprehensiveAnalysisResult object
         """
         print(f"Processing transcript: {file_path}")
+        print("="*80)
         
         # Step 1: Process transcript
+        print("\n📄 STEP 1: TRANSCRIPT PREPROCESSING")
+        print("-"*80)
         print("  → Preprocessing text...")
         transcript = self.transcript_processor.process(file_path)
         
@@ -86,8 +126,12 @@ class EarningsCallAnalyzer:
             print(f"  ⚠️  Warnings:")
             for warning in warnings:
                 print(f"     - {warning}")
+        print(f"  ✓ Processed {transcript.word_count:,} words in {transcript.sentence_count} sentences")
         
-        # Step 2: Overall analysis
+        # Step 2: Phase 1 Analysis
+        print("\n📊 STEP 2: PHASE 1 CORE ANALYSIS")
+        print("-"*80)
+        
         print("  → Analyzing overall sentiment...")
         overall_sentiment = self.sentiment_analyzer.analyze(transcript.cleaned_text)
         
@@ -108,15 +152,58 @@ class EarningsCallAnalyzer:
         speaker_complexity = self.complexity_analyzer.analyze_by_speaker(transcript.speakers)
         speaker_numerical = self.numerical_analyzer.analyze_by_speaker(transcript.speakers)
         
-        # Step 5: Generate insights
-        print("  → Generating insights and identifying patterns...")
+        print("  ✓ Phase 1 analysis complete")
+        
+        # Step 5: Phase 2A Deception Analysis
+        deception_risk = None
+        evasiveness_scores = None
+        qa_analysis = None
+        
+        if self.enable_deception:
+            print("\n🔍 STEP 3: PHASE 2A DECEPTION ANALYSIS")
+            print("-"*80)
+            
+            print("  → Analyzing deception risk indicators...")
+            deception_risk = self.deception_analyzer.analyze(
+                transcript=transcript,
+                sentiment_scores=overall_sentiment,
+                complexity_scores=overall_complexity,
+                numerical_scores=overall_numerical,
+                section_analysis={
+                    'prepared_remarks': section_complexity.get('prepared_remarks'),
+                    'qa': section_complexity.get('qa')
+                }
+            )
+            
+            print("  → Analyzing evasiveness patterns...")
+            evasiveness_scores = self.evasiveness_analyzer.analyze(transcript.cleaned_text)
+            
+            # Q&A analysis (if Q&A section exists)
+            if transcript.sections.get('qa') and settings.ENABLE_QA_ANALYSIS:
+                print("  → Analyzing Q&A exchanges for evasion...")
+                qa_analysis = self.qa_detector.analyze_qa_section(transcript.sections['qa'])
+                print(f"     • Analyzed {len(qa_analysis)} Q&A pairs")
+            else:
+                print("  → No Q&A section found, skipping Q&A analysis")
+            
+            print("  ✓ Deception analysis complete")
+        
+        # Step 6: Generate insights
+        print("\n💡 STEP 4: GENERATING INSIGHTS")
+        print("-"*80)
+        print("  → Identifying patterns and generating insights...")
         key_findings, red_flags, strengths = self._generate_insights(
             overall_sentiment,
             overall_complexity,
             overall_numerical,
             section_sentiment,
-            section_complexity
+            section_complexity,
+            deception_risk,
+            evasiveness_scores,
+            qa_analysis
         )
+        
+        print(f"  ✓ Generated {len(key_findings)} findings, {len(red_flags)} red flags, {len(strengths)} strengths")
         
         # Compile results
         result = ComprehensiveAnalysisResult(
@@ -135,6 +222,9 @@ class EarningsCallAnalyzer:
                                                       speaker_complexity, speaker_numerical),
             cfo_metrics=self._compile_speaker_metrics('cfo', speaker_sentiment,
                                                       speaker_complexity, speaker_numerical),
+            deception_risk=deception_risk,
+            evasiveness_scores=evasiveness_scores,
+            qa_analysis=qa_analysis,
             key_findings=key_findings,
             red_flags=red_flags,
             strengths=strengths,
@@ -142,7 +232,10 @@ class EarningsCallAnalyzer:
             sentence_count=transcript.sentence_count
         )
         
-        print("✓ Analysis complete!")
+        print("\n" + "="*80)
+        print("✅ ANALYSIS COMPLETE!")
+        print("="*80)
+        
         return result
     
     def _compile_speaker_metrics(
@@ -172,10 +265,14 @@ class EarningsCallAnalyzer:
         overall_complexity: ComplexityScores,
         overall_numerical: NumericalScores,
         section_sentiment: Dict,
-        section_complexity: Dict
+        section_complexity: Dict,
+        deception_risk: Optional[DeceptionRiskScore] = None,
+        evasiveness_scores: Optional[EvasivenessScores] = None,
+        qa_analysis: Optional[List[QuestionResponse]] = None
     ) -> tuple:
         """
         Generate key findings, red flags, and strengths
+        Phase 2 Enhanced - includes deception insights
         
         Returns:
             Tuple of (key_findings, red_flags, strengths)
@@ -184,7 +281,7 @@ class EarningsCallAnalyzer:
         red_flags = []
         strengths = []
         
-        # Sentiment insights
+        # ===== PHASE 1: SENTIMENT INSIGHTS =====
         if overall_sentiment.hybrid_sentiment_score > 0.3:
             key_findings.append(f"Strong positive sentiment (score: {overall_sentiment.hybrid_sentiment_score:.2f})")
             strengths.append("Optimistic tone throughout the call")
@@ -192,14 +289,14 @@ class EarningsCallAnalyzer:
             key_findings.append(f"Negative sentiment (score: {overall_sentiment.hybrid_sentiment_score:.2f})")
             red_flags.append("Pessimistic or defensive language detected")
         
-        # Complexity insights
+        # ===== PHASE 1: COMPLEXITY INSIGHTS =====
         if overall_complexity.composite_score > 70:
             key_findings.append(f"High language complexity ({overall_complexity.complexity_level})")
             red_flags.append(f"Language complexity score of {overall_complexity.composite_score:.0f} may indicate obfuscation")
         elif overall_complexity.composite_score < 40:
             strengths.append("Clear, accessible language")
         
-        # Numerical transparency insights
+        # ===== PHASE 1: NUMERICAL TRANSPARENCY INSIGHTS =====
         if overall_numerical.vs_sp500_benchmark == "above":
             strengths.append(f"Above-average numerical transparency ({overall_numerical.numeric_transparency_score:.2f}% vs {settings.SP500_NUMERIC_TRANSPARENCY}% benchmark)")
         elif overall_numerical.vs_sp500_benchmark == "below":
@@ -216,7 +313,7 @@ class EarningsCallAnalyzer:
             key_findings.append("Limited forward-looking quantitative guidance")
             red_flags.append(f"Forward-looking numerical density ({overall_numerical.forward_looking_density:.2f}%) significantly lower than backward-looking")
         
-        # Section comparisons
+        # ===== PHASE 1: SECTION COMPARISONS =====
         if 'prepared_remarks' in section_sentiment and 'qa' in section_sentiment:
             prep_score = section_sentiment['prepared_remarks'].hybrid_sentiment_score
             qa_score = section_sentiment['qa'].hybrid_sentiment_score
@@ -231,6 +328,63 @@ class EarningsCallAnalyzer:
             
             if qa_complex > prep_complex + 15:
                 red_flags.append("Q&A responses are notably more complex than prepared remarks")
+        
+        # ===== PHASE 2A: DECEPTION RISK INSIGHTS =====
+        if deception_risk:
+            key_findings.append(f"Deception risk assessment: {deception_risk.risk_level} ({deception_risk.overall_risk_score:.0f}/100)")
+            
+            # Overall risk level alerts
+            if deception_risk.risk_level == "Critical":
+                red_flags.append(f"⚠️ CRITICAL DECEPTION RISK: Score of {deception_risk.overall_risk_score:.0f}/100")
+            elif deception_risk.risk_level == "High":
+                red_flags.append(f"⚠️ HIGH DECEPTION RISK: Score of {deception_risk.overall_risk_score:.0f}/100")
+            elif deception_risk.risk_level == "Low":
+                strengths.append(f"Low deception risk indicators (score: {deception_risk.overall_risk_score:.0f}/100)")
+            
+            # Specific indicator alerts
+            indicators = deception_risk.indicators
+            
+            if indicators.hedging_score > settings.HEDGING_DENSITY_THRESHOLD:
+                red_flags.append(f"Excessive hedging language ({indicators.hedging_score:.1f}%)")
+            
+            if indicators.qualifier_density > settings.QUALIFIER_DENSITY_THRESHOLD:
+                red_flags.append(f"High qualifier density ({indicators.qualifier_density:.1f}%)")
+            
+            if indicators.passive_voice_ratio > settings.PASSIVE_VOICE_THRESHOLD:
+                red_flags.append(f"High passive voice usage ({indicators.passive_voice_ratio:.1f}%)")
+            
+            if indicators.complexity_spike_qa > 60:
+                red_flags.append("Significant complexity spike in Q&A responses")
+            
+            if indicators.forward_avoidance > 70:
+                red_flags.append("Avoidance of forward-looking numbers")
+            
+            # Add top triggered flags
+            if deception_risk.triggered_flags:
+                for flag in deception_risk.triggered_flags[:3]:  # Top 3
+                    if flag not in red_flags:  # Avoid duplicates
+                        red_flags.append(flag)
+        
+        # ===== PHASE 2A: EVASIVENESS INSIGHTS =====
+        if evasiveness_scores:
+            key_findings.append(f"Evasiveness level: {evasiveness_scores.evasiveness_level} ({evasiveness_scores.overall_evasiveness:.1f})")
+            
+            if evasiveness_scores.vs_baseline == "above":
+                red_flags.append(f"Above-average evasiveness ({evasiveness_scores.overall_evasiveness:.1f} vs {settings.SP500_EVASIVENESS_BASELINE} baseline)")
+            elif evasiveness_scores.vs_baseline == "below":
+                strengths.append(f"Below-average evasiveness ({evasiveness_scores.overall_evasiveness:.1f} vs {settings.SP500_EVASIVENESS_BASELINE} baseline)")
+        
+        # ===== PHASE 2A: Q&A EVASION INSIGHTS =====
+        if qa_analysis:
+            evasive_count = sum(1 for qa in qa_analysis if qa.is_evasive)
+            evasion_rate = (evasive_count / len(qa_analysis)) * 100 if qa_analysis else 0
+            
+            key_findings.append(f"Q&A evasion rate: {evasion_rate:.1f}% ({evasive_count}/{len(qa_analysis)} questions)")
+            
+            if evasion_rate > settings.QUESTION_AVOIDANCE_ALERT:
+                red_flags.append(f"High question evasion rate: {evasion_rate:.1f}% of analyst questions evaded")
+            elif evasion_rate < 20:
+                strengths.append("Direct and responsive answers to analyst questions")
         
         # Ensure we have at least some findings
         if not key_findings:
@@ -253,36 +407,108 @@ class EarningsCallAnalyzer:
         results_dict = asdict(results)
         
         with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(results_dict, f, indent=2)
+            json.dump(results_dict, f, indent=2, default=str)
         
-        print(f"Results saved to: {output_path}")
+        print(f"\n💾 Results saved to: {output_path}")
     
     def print_summary(self, results: ComprehensiveAnalysisResult) -> None:
-        """Print a human-readable summary of results"""
+        """Print a human-readable summary of results - Phase 2 Enhanced"""
         print("\n" + "="*80)
-        print(f"EARNINGS CALL ANALYSIS SUMMARY")
+        print(f"EARNINGS CALL ANALYSIS SUMMARY - PHASE 2")
         print(f"Company: {results.company_name} | Quarter: {results.quarter} {results.year}")
+        print(f"Analysis Date: {results.timestamp.split('T')[0]}")
         print("="*80)
         
-        print("\n📊 OVERALL METRICS")
+        # ===== PHASE 1: CORE METRICS =====
+        print("\n📊 PHASE 1: CORE METRICS")
         print("-" * 80)
-        print(f"Sentiment:           {results.overall_sentiment.hybrid_label} ({results.overall_sentiment.hybrid_sentiment_score:.2f})")
-        print(f"Complexity:          {results.overall_complexity.complexity_level} ({results.overall_complexity.composite_score:.0f}/100)")
+        print(f"Sentiment:              {results.overall_sentiment.hybrid_label} ({results.overall_sentiment.hybrid_sentiment_score:.2f})")
+        print(f"Complexity:             {results.overall_complexity.complexity_level} ({results.overall_complexity.composite_score:.0f}/100)")
         print(f"Numerical Transparency: {results.overall_numerical.numeric_transparency_score:.2f}% ({results.overall_numerical.vs_sp500_benchmark} S&P 500)")
-        print(f"Word Count:          {results.word_count:,}")
+        print(f"Word Count:             {results.word_count:,}")
         
+        # ===== PHASE 2A: DECEPTION METRICS =====
+        if results.deception_risk:
+            print("\n🔍 PHASE 2A: DECEPTION RISK ASSESSMENT")
+            print("-" * 80)
+            risk = results.deception_risk
+            
+            # Risk level with color coding
+            risk_emoji = {
+                "Low": "✅",
+                "Moderate": "⚠️",
+                "High": "🚨",
+                "Critical": "🔴"
+            }
+            emoji = risk_emoji.get(risk.risk_level, "❓")
+            
+            print(f"Overall Risk:           {emoji} {risk.risk_level} ({risk.overall_risk_score:.0f}/100)")
+            print(f"Confidence:             {risk.confidence:.0%}")
+            
+            # Component scores
+            print(f"\nRisk Components:")
+            print(f"  • Linguistic:         {risk.risk_components['linguistic']:.1f}/100")
+            print(f"  • Behavioral:         {risk.risk_components['behavioral']:.1f}/100")
+            print(f"  • Numerical:          {risk.risk_components['numerical']:.1f}/100")
+            print(f"  • Evasion:            {risk.risk_components['evasion']:.1f}/100")
+            
+            # Top indicators
+            indicators = risk.indicators
+            print(f"\nKey Indicators:")
+            print(f"  • Hedging Density:    {indicators.hedging_score:.1f}%")
+            print(f"  • Qualifier Density:  {indicators.qualifier_density:.1f}%")
+            print(f"  • Passive Voice:      {indicators.passive_voice_ratio:.1f}%")
+            print(f"  • Forward Avoidance:  {indicators.forward_avoidance:.1f}/100")
+            
+            if risk.triggered_flags:
+                print(f"\nTriggered Flags ({len(risk.triggered_flags)}):")
+                for flag in risk.triggered_flags[:5]:  # Show top 5
+                    print(f"  • {flag}")
+        
+        # Evasiveness scores
+        if results.evasiveness_scores:
+            print("\n📝 EVASIVENESS ANALYSIS")
+            print("-" * 80)
+            ev = results.evasiveness_scores
+            print(f"Overall Evasiveness:    {ev.evasiveness_level} ({ev.overall_evasiveness:.1f})")
+            print(f"vs S&P 500 Baseline:    {ev.vs_baseline} ({settings.SP500_EVASIVENESS_BASELINE})")
+            print(f"  • Qualifiers:         {ev.qualifier_density:.1f}%")
+            print(f"  • Hedging:            {ev.hedging_language_pct:.1f}%")
+            print(f"  • Passive Voice:      {ev.passive_voice_pct:.1f}%")
+        
+        # Q&A analysis
+        if results.qa_analysis:
+            print("\n💬 Q&A ANALYSIS")
+            print("-" * 80)
+            total_qa = len(results.qa_analysis)
+            evasive = sum(1 for qa in results.qa_analysis if qa.is_evasive)
+            evasion_rate = (evasive / total_qa * 100) if total_qa > 0 else 0
+            
+            print(f"Total Q&A Pairs:        {total_qa}")
+            print(f"Evasive Responses:      {evasive} ({evasion_rate:.1f}%)")
+            
+            if evasive > 0:
+                print(f"\nMost Evasive Questions:")
+                sorted_qa = sorted(results.qa_analysis, key=lambda x: x.response_relevance)
+                for i, qa in enumerate(sorted_qa[:3], 1):
+                    print(f"  {i}. Relevance: {qa.response_relevance:.2f} | Type: {qa.evasion_type}")
+                    print(f"     Q: {qa.question[:100]}...")
+        
+        # ===== RED FLAGS =====
         if results.red_flags:
             print("\n🚩 RED FLAGS")
             print("-" * 80)
             for flag in results.red_flags:
                 print(f"  • {flag}")
         
+        # ===== STRENGTHS =====
         if results.strengths:
-            print("\n✓ STRENGTHS")
+            print("\n✅ STRENGTHS")
             print("-" * 80)
             for strength in results.strengths:
                 print(f"  • {strength}")
         
+        # ===== KEY FINDINGS =====
         if results.key_findings:
             print("\n💡 KEY FINDINGS")
             print("-" * 80)
@@ -290,3 +516,15 @@ class EarningsCallAnalyzer:
                 print(f"  • {finding}")
         
         print("\n" + "="*80)
+        
+        # Summary recommendation
+        if results.deception_risk:
+            risk_level = results.deception_risk.risk_level
+            if risk_level in ["High", "Critical"]:
+                print("\n⚠️  RECOMMENDATION: This transcript exhibits concerning patterns.")
+                print("    Further investigation and corroboration with financial data is advised.")
+            elif risk_level == "Moderate":
+                print("\n💡 RECOMMENDATION: Monitor for consistency with financial performance.")
+            else:
+                print("\n✅ RECOMMENDATION: Communication patterns appear transparent.")
+            print("="*80)
