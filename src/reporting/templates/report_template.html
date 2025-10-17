@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Earnings Call Analysis Report - {{ company_name }}</title>
+    <style>
+        @page {
+            size: Letter;
+            margin: 1in;
+        }
+        
+        body {
+            font-family: 'Helvetica', 'Arial', sans-serif;
+            font-size: 11pt;
+            line-height: 1.6;
+            color: #333;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            margin-top: 0;
+        }
+        
+        h2 {
+            color: #34495e;
+            border-bottom: 2px solid #95a5a6;
+            padding-bottom: 5px;
+            margin-top: 25px;
+            page-break-after: avoid;
+        }
+        
+        h3 {
+            color: #7f8c8d;
+            margin-top: 20px;
+            page-break-after: avoid;
+        }
+        
+        .header-section {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-left: 4px solid #3498db;
+            margin-bottom: 30px;
+            page-break-inside: avoid;
+        }
+        
+        .executive-summary {
+            background-color: #e8f4f8;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 20px 0;
+            page-break-inside: avoid;
+        }
+        
+        .metric-card {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+            page-break-inside: avoid;
+        }
+        
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+        }
+        
+        .metric-label {
+            font-weight: bold;
+            color: #555;
+        }
+        
+        .metric-value {
+            font-size: 20pt;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .metric-interpretation {
+            font-size: 10pt;
+            color: #666;
+            font-style: italic;
+        }
+        
+        .chart-container {
+            text-align: center;
+            page-break-inside: avoid;
+            margin: 20px 0;
+        }
+        
+        .chart-container img {
+            max-width: 100%;
+            height: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            page-break-inside: avoid;
+        }
+        
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #3498db;
+            color: white;
+            font-weight: bold;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        
+        .positive {
+            color: #28a745;
+            font-weight: bold;
+        }
+        
+        .warning {
+            color: #ffc107;
+            font-weight: bold;
+        }
+        
+        .negative {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        
+        .red-flag {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        
+        .strength {
+            color: #28a745;
+            font-weight: bold;
+        }
+        
+        ul, ol {
+            margin: 10px 0;
+            padding-left: 25px;
+        }
+        
+        li {
+            margin: 5px 0;
+        }
+        
+        .section-divider {
+            border-top: 2px solid #ddd;
+            margin: 30px 0;
+        }
+        
+        .footer {
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 9pt;
+            color: #666;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="header-section">
+        <h1>Earnings Call Analysis Report</h1>
+        <p><strong>Company:</strong> {{ company_name }}</p>
+        <p><strong>Reporting Period:</strong> {{ report_data.quarter }} {{ report_data.year }}</p>
+        <p><strong>Report Generated:</strong> {{ generation_date }}</p>
+    </div>
+
+    <h2>Executive Summary</h2>
+    <div class="executive-summary">
+        <p><strong>Overall Assessment:</strong> {{ report_data.executive_summary.overall_assessment }}</p>
+        
+        <p><strong>Key Highlights:</strong></p>
+        <ul>
+        {% for highlight in report_data.executive_summary.highlights %}
+            <li>{{ highlight }}</li>
+        {% endfor %}
+        </ul>
+    </div>
+
+    {% if charts.sentiment_gauge %}
+    <div class="chart-container">
+        <h3>Key Metrics Overview</h3>
+        <img src="{{ charts.sentiment_gauge }}" alt="Sentiment Gauge">
+        <img src="{{ charts.deception_gauge }}" alt="Deception Risk Gauge">
+    </div>
+    {% endif %}
+
+    <div class="section-divider"></div>
+
+    <h2>Sentiment Analysis</h2>
+    <div class="metric-card">
+        {% for metric in report_data.metrics.sentiment %}
+        <div class="metric-row">
+            <div>
+                <span class="metric-label">{{ metric.name }}:</span>
+                <span class="metric-interpretation">{{ metric.interpretation }}</span>
+            </div>
+            <div style="text-align: right;">
+                <span class="metric-value" style="color: {{ metric.color }}">{{ metric.value }}</span>
+                <span>{{ metric.unit }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <h2>Complexity Analysis</h2>
+    <div class="metric-card">
+        {% for metric in report_data.metrics.complexity %}
+        <div class="metric-row">
+            <div>
+                <span class="metric-label">{{ metric.name }}:</span>
+                <span class="metric-interpretation">{{ metric.interpretation }}</span>
+            </div>
+            <div style="text-align: right;">
+                <span class="metric-value" style="color: {{ metric.color }}">{{ metric.value }}</span>
+                <span>{{ metric.unit }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <h2>Numerical Transparency</h2>
+    <div class="metric-card">
+        {% for metric in report_data.metrics.numerical %}
+        <div class="metric-row">
+            <div>
+                <span class="metric-label">{{ metric.name }}:</span>
+                <span class="metric-interpretation">{{ metric.interpretation }}</span>
+            </div>
+            <div style="text-align: right;">
+                <span class="metric-value" style="color: {{ metric.color }}">{{ metric.value }}</span>
+                <span>{{ metric.unit }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="section-divider"></div>
+
+    <h2>Deception Risk Assessment</h2>
+    <div class="metric-card">
+        {% for metric in report_data.metrics.deception %}
+        <div class="metric-row">
+            <div>
+                <span class="metric-label">{{ metric.name }}:</span>
+                <span class="metric-interpretation">{{ metric.interpretation }}</span>
+            </div>
+            <div style="text-align: right;">
+                <span class="metric-value" style="color: {{ metric.color }}">{{ metric.value }}</span>
+                <span>{{ metric.unit }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <h2>Evasiveness Analysis</h2>
+    <div class="metric-card">
+        {% for metric in report_data.metrics.evasiveness %}
+        <div class="metric-row">
+            <div>
+                <span class="metric-label">{{ metric.name }}:</span>
+                <span class="metric-interpretation">{{ metric.interpretation }}</span>
+            </div>
+            <div style="text-align: right;">
+                <span class="metric-value" style="color: {{ metric.color }}">{{ metric.value }}</span>
+                <span>{{ metric.unit }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="section-divider"></div>
+
+    <h2>Key Insights</h2>
+    
+    {% if report_data.insights.key_findings %}
+    <h3>Key Findings</h3>
+    <ul>
+    {% for finding in report_data.insights.key_findings %}
+        <li>{{ finding }}</li>
+    {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if report_data.insights.red_flags %}
+    <h3>Red Flags</h3>
+    <ul>
+    {% for flag in report_data.insights.red_flags %}
+        <li class="red-flag">⚠ {{ flag }}</li>
+    {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if report_data.insights.strengths %}
+    <h3>Strengths</h3>
+    <ul>
+    {% for strength in report_data.insights.strengths %}
+        <li class="strength">✓ {{ strength }}</li>
+    {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if has_peer_data %}
+    <div class="section-divider"></div>
+    <h2>Peer Comparison</h2>
+    {% if charts.peer_comparison %}
+    <div class="chart-container">
+        <img src="{{ charts.peer_comparison }}" alt="Peer Comparison">
+    </div>
+    {% endif %}
+    {% endif %}
+
+    <div class="section-divider"></div>
+
+    <h2>Document Statistics</h2>
+    <table>
+        <tr>
+            <th>Metric</th>
+            <th>Value</th>
+        </tr>
+        <tr>
+            <td>Total Word Count</td>
+            <td>{{ report_data.word_count }}</td>
+        </tr>
+        <tr>
+            <td>Total Sentences</td>
+            <td>{{ report_data.sentence_count }}</td>
+        </tr>
+        <tr>
+            <td>Average Words per Sentence</td>
+            <td>{{ (report_data.word_count / report_data.sentence_count)|round(1) }}</td>
+        </tr>
+    </table>
+
+    <div class="footer">
+        <p>This report was automatically generated by the Earnings Call Analyzer</p>
+        <p>© 2024-2025 | Confidential and Proprietary</p>
+    </div>
+</body>
+</html>

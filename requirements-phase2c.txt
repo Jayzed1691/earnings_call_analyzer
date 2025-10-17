@@ -1,0 +1,24 @@
+# Phase 2C: Advanced Reporting Requirements
+# These dependencies enable PDF, HTML, and Excel report generation
+
+# Core reporting
+jinja2>=3.1.2              # Template engine for HTML/PDF templates
+plotly>=5.17.0             # Interactive visualizations for HTML dashboards
+kaleido>=0.2.1             # Static image export for Plotly charts
+
+# PDF generation
+weasyprint>=60.0           # HTML to PDF conversion
+pypdf>=3.17.0              # PDF manipulation utilities
+
+# Excel export
+openpyxl>=3.1.2            # Excel workbook creation and formatting
+xlsxwriter>=3.1.9          # Alternative Excel writer with chart support
+
+# Image processing (for charts in reports)
+pillow>=10.0.0             # Image manipulation
+
+# Data formatting
+python-dateutil>=2.8.2     # Date parsing and formatting
+
+# Already required from Phase 2B
+# sqlalchemy>=2.0.0        # Database ORM (from Phase 2B)

@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Earnings Call Dashboard - {{ company_name }}</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        
+        .header-meta {
+            font-size: 1.1em;
+            opacity: 0.9;
+            margin-top: 10px;
+        }
+        
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+        
+        .summary-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .summary-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        .summary-card h3 {
+            color: #555;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+        
+        .summary-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        
+        .summary-label {
+            color: #666;
+            font-size: 0.95em;
+        }
+        
+        .positive-value {
+            color: #28a745;
+        }
+        
+        .warning-value {
+            color: #ffc107;
+        }
+        
+        .negative-value {
+            color: #dc3545;
+        }
+        
+        .neutral-value {
+            color: #6c757d;
+        }
+        
+        .content-section {
+            padding: 30px;
+        }
+        
+        .section-title {
+            font-size: 1.8em;
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+        }
+        
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .full-width-chart {
+            grid-column: 1 / -1;
+        }
+        
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #ddd;
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            padding: 15px 30px;
+            cursor: pointer;
+            background: #f8f9fa;
+            border: none;
+            font-size: 1.1em;
+            transition: all 0.3s ease;
+        }
+        
+        .tab:hover {
+            background: #e9ecef;
+        }
+        
+        .tab.active {
+            background: #667eea;
+            color: white;
+            font-weight: bold;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.5s;
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .footer {
+            background: #2c3e50;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .stats-badge {
+            display: inline-block;
+            padding: 5px 15px;
+            background: #e9ecef;
+            border-radius: 20px;
+            font-size: 0.85em;
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>📊 Earnings Call Analysis Dashboard</h1>
+            <h2 style="margin-top: 15px;">{{ company_name }}</h2>
+            <div class="header-meta">
+                <span>{{ quarter }} {{ year }}</span> | 
+                <span>Generated: {{ generation_date }}</span>
+            </div>
+        </div>
+
+        <!-- Summary Statistics -->
+        <div class="summary-grid">
+            <div class="summary-card">
+                <h3>Sentiment</h3>
+                <div class="summary-value {% if summary_stats.sentiment_score >= 60 %}positive-value{% elif summary_stats.sentiment_score >= 40 %}warning-value{% else %}negative-value{% endif %}">
+                    {{ summary_stats.sentiment_score|round(1) }}
+                </div>
+                <div class="summary-label">{{ summary_stats.sentiment_label }}</div>
+            </div>
+
+            <div class="summary-card">
+                <h3>Deception Risk</h3>
+                <div class="summary-value {% if summary_stats.deception_score < 40 %}positive-value{% elif summary_stats.deception_score < 60 %}warning-value{% else %}negative-value{% endif %}">
+                    {{ summary_stats.deception_score|round(1) }}
+                </div>
+                <div class="summary-label">{{ summary_stats.deception_level }}</div>
+            </div>
+
+            <div class="summary-card">
+                <h3>Complexity</h3>
+                <div class="summary-value neutral-value">
+                    {{ summary_stats.complexity_score|round(1) }}
+                </div>
+                <div class="summary-label">{{ summary_stats.complexity_level }}</div>
+            </div>
+
+            <div class="summary-card">
+                <h3>Transparency</h3>
+                <div class="summary-value {% if summary_stats.transparency_score >= 70 %}positive-value{% elif summary_stats.transparency_score >= 50 %}warning-value{% else %}negative-value{% endif %}">
+                    {{ summary_stats.transparency_score|round(1) }}
+                </div>
+                <div class="summary-label">Numerical Clarity</div>
+            </div>
+
+            <div class="summary-card">
+                <h3>Document Size</h3>
+                <div class="summary-value neutral-value">
+                    {{ summary_stats.word_count }}
+                </div>
+                <div class="summary-label">Words ({{ summary_stats.sentence_count }} sentences)</div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="content-section">
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" onclick="openTab(event, 'overview')">Overview</button>
+                <button class="tab" onclick="openTab(event, 'detailed')">Detailed Metrics</button>
+                {% if has_historical %}
+                <button class="tab" onclick="openTab(event, 'historical')">Historical Trends</button>
+                {% endif %}
+                {% if has_peers %}
+                <button class="tab" onclick="openTab(event, 'peers')">Peer Comparison</button>
+                {% endif %}
+            </div>
+
+            <!-- Overview Tab -->
+            <div id="overview" class="tab-content active">
+                <h2 class="section-title">Performance Overview</h2>
+                
+                <div class="chart-grid">
+                    <div class="chart-container">
+                        {{ sentiment_gauge|safe }}
+                    </div>
+                    
+                    <div class="chart-container">
+                        {{ deception_gauge|safe }}
+                    </div>
+                    
+                    <div class="chart-container">
+                        {{ complexity_gauge|safe }}
+                    </div>
+                </div>
+
+                <div class="chart-grid">
+                    <div class="chart-container full-width-chart">
+                        <h3>Overall Performance Metrics</h3>
+                        {{ metrics_radar|safe }}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detailed Metrics Tab -->
+            <div id="detailed" class="tab-content">
+                <h2 class="section-title">Detailed Analysis</h2>
+                
+                <div class="chart-grid">
+                    <div class="chart-container full-width-chart">
+                        <h3>Linguistic Deception Markers</h3>
+                        {{ linguistic_markers|safe }}
+                    </div>
+                </div>
+            </div>
+
+            {% if has_historical %}
+            <!-- Historical Trends Tab -->
+            <div id="historical" class="tab-content">
+                <h2 class="section-title">Historical Trends</h2>
+                
+                <div class="chart-grid">
+                    <div class="chart-container full-width-chart">
+                        {{ historical_trends|safe }}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if has_peers %}
+            <!-- Peer Comparison Tab -->
+            <div id="peers" class="tab-content">
+                <h2 class="section-title">Peer Comparison</h2>
+                
+                <div class="chart-grid">
+                    <div class="chart-container full-width-chart">
+                        {{ peer_comparison|safe }}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>📈 Earnings Call Analyzer - Phase 2C Dashboard</p>
+            <p style="margin-top: 10px; opacity: 0.8;">Interactive analysis powered by Plotly | Generated with Phase 2C Advanced Reporting</p>
+        </div>
+    </div>
+
+    <script>
+        function openTab(evt, tabName) {
+            // Hide all tab contents
+            var tabContents = document.getElementsByClassName("tab-content");
+            for (var i = 0; i < tabContents.length; i++) {
+                tabContents[i].classList.remove("active");
+            }
+            
+            // Remove active class from all tabs
+            var tabs = document.getElementsByClassName("tab");
+            for (var i = 0; i < tabs.length; i++) {
+                tabs[i].classList.remove("active");
+            }
+            
+            // Show the selected tab content and mark tab as active
+            document.getElementById(tabName).classList.add("active");
+            evt.currentTarget.classList.add("active");
+        }
+        
+        // Make charts responsive
+        window.addEventListener('resize', function() {
+            Plotly.Plots.resize(document.querySelector('.chart-container'));
+        });
+    </script>
+</body>
+</html>
