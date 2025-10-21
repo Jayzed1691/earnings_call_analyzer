@@ -1,12 +1,17 @@
 """
 Transcript processing module with input validation
+Enhanced with tokenization caching for performance
 """
 import re
+import logging
 from typing import Dict, List, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from functools import cached_property
 from src.utils.text_utils import clean_text, tokenize_sentences, tokenize_words
 from config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -22,16 +27,46 @@ class TranscriptMetadata:
 
 @dataclass
 class ProcessedTranscript:
-    """Processed transcript with metadata"""
+    """
+    Processed transcript with metadata and cached tokenization
+
+    Uses cached properties to avoid redundant tokenization operations
+    """
     raw_text: str
     cleaned_text: str
-    sentences: List[str]
-    words: List[str]
-    word_count: int
-    sentence_count: int
     metadata: TranscriptMetadata
     speakers: Dict[str, str]  # speaker_name -> full text
     sections: Dict[str, str]  # section_name -> full text
+
+    # Cached tokenization (computed on first access)
+    _sentences: Optional[List[str]] = field(default=None, repr=False, compare=False)
+    _words: Optional[List[str]] = field(default=None, repr=False, compare=False)
+
+    @property
+    def sentences(self) -> List[str]:
+        """Get sentences (cached after first access)"""
+        if self._sentences is None:
+            logger.debug("Tokenizing sentences (first access)")
+            self._sentences = tokenize_sentences(self.cleaned_text)
+        return self._sentences
+
+    @property
+    def words(self) -> List[str]:
+        """Get words (cached after first access)"""
+        if self._words is None:
+            logger.debug("Tokenizing words (first access)")
+            self._words = tokenize_words(self.cleaned_text)
+        return self._words
+
+    @property
+    def word_count(self) -> int:
+        """Get word count (uses cached words)"""
+        return len(self.words)
+
+    @property
+    def sentence_count(self) -> int:
+        """Get sentence count (uses cached sentences)"""
+        return len(self.sentences)
 
 
 class TranscriptProcessor:
@@ -285,35 +320,34 @@ class TranscriptProcessor:
             ProcessedTranscript object
         """
         # Load raw text
+        logger.info(f"Loading transcript from {file_path}")
         raw_text = self.load_transcript(file_path)
-        
+
         # Extract metadata
         metadata = self.extract_metadata(raw_text)
-        
+        logger.debug(f"Extracted metadata: {metadata.company_name}")
+
         # Clean text
         cleaned_text = clean_text(raw_text)
-        
-        # Tokenize
-        sentences = tokenize_sentences(cleaned_text)
-        words = tokenize_words(cleaned_text, lowercase=False, remove_punct=True)
-        
-        # Identify speakers and sections
+        logger.debug(f"Cleaned text: {len(cleaned_text)} chars")
+
+        # Identify speakers and sections (no tokenization yet - that's lazy)
         speakers = self.identify_speakers(cleaned_text)
         sections = self.split_sections(cleaned_text)
-        
+        logger.debug(f"Found {len(speakers)} speakers, {len(sections)} sections")
+
         # Convert speaker lists to concatenated strings
         speaker_texts = {
             name: ' '.join(segments)
             for name, segments in speakers.items()
         }
-        
+
+        # Create transcript with lazy tokenization
+        # Note: sentences, words, word_count, sentence_count are now properties
+        # that are computed on first access
         return ProcessedTranscript(
             raw_text=raw_text,
             cleaned_text=cleaned_text,
-            sentences=sentences,
-            words=words,
-            word_count=len(words),
-            sentence_count=len(sentences),
             metadata=metadata,
             speakers=speaker_texts,
             sections=sections
