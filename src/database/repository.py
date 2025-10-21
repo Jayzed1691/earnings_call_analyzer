@@ -11,8 +11,10 @@ Provides high-level interface for:
 
 from sqlalchemy import create_engine, and_, or_, func, desc
 from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.exc import SQLAlchemyError
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
+from contextlib import contextmanager
 import statistics
 import json
 from dataclasses import asdict
@@ -45,6 +47,32 @@ class DatabaseRepository:
     def _get_session(self) -> Session:
         """Get a new database session"""
         return self.SessionLocal()
+
+    @contextmanager
+    def get_session(self):
+        """
+        Context manager for database sessions with automatic commit/rollback
+
+        Usage:
+            with repository.get_session() as session:
+                company = session.query(Company).filter_by(ticker='AAPL').first()
+                # Session automatically commits on success or rolls back on error
+
+        Yields:
+            Session: Database session
+        """
+        session = self._get_session()
+        try:
+            yield session
+            session.commit()
+        except SQLAlchemyError as e:
+            session.rollback()
+            raise
+        except Exception as e:
+            session.rollback()
+            raise
+        finally:
+            session.close()
     
     # ===== COMPANY OPERATIONS =====
     
@@ -57,21 +85,20 @@ class DatabaseRepository:
     ) -> int:
         """
         Save or update a company
-        
+
         Args:
             name: Company name
             ticker: Stock ticker symbol
             sector: Industry sector (optional)
             industry: Specific industry (optional)
-            
+
         Returns:
             Company ID
         """
-        session = self._get_session()
-        try:
+        with self.get_session() as session:
             # Check if company exists
             company = session.query(Company).filter_by(name=name).first()
-            
+
             if company:
                 # Update existing
                 company.ticker = ticker
@@ -88,11 +115,10 @@ class DatabaseRepository:
                     industry=industry
                 )
                 session.add(company)
-            
-            session.commit()
+
+            # Flush to get the ID before commit
+            session.flush()
             return company.id
-        finally:
-            session.close()
     
     def get_company(
         self,

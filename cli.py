@@ -7,8 +7,13 @@ Phase 2A Enhanced - Includes deception analysis commands
 """
 import click
 import json
+import logging
 from pathlib import Path
 from config.settings import settings
+from config.logging_config import setup_logging
+
+# Initialize logging
+setup_logging()
 
 
 @click.group()
