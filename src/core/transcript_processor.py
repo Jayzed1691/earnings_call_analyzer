@@ -1,11 +1,12 @@
 """
-Transcript processing module
+Transcript processing module with input validation
 """
 import re
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from pathlib import Path
 from src.utils.text_utils import clean_text, tokenize_sentences, tokenize_words
+from config.settings import settings
 
 
 @dataclass
@@ -34,8 +35,11 @@ class ProcessedTranscript:
 
 
 class TranscriptProcessor:
-    """Process earnings call transcripts"""
-    
+    """Process earnings call transcripts with validation"""
+
+    # Maximum file size in bytes (10 MB)
+    MAX_FILE_SIZE = 10 * 1024 * 1024
+
     def __init__(self):
         """Initialize transcript processor"""
         self.speaker_patterns = {
@@ -45,26 +49,105 @@ class TranscriptProcessor:
             'analyst': r'(?:Analyst)',
         }
     
-    def load_transcript(self, file_path: str) -> str:
+    def validate_file(self, file_path: str) -> None:
         """
-        Load transcript from file
-        
+        Validate transcript file before processing
+
         Args:
-            file_path: Path to transcript file (.txt)
-            
-        Returns:
-            Raw transcript text
+            file_path: Path to transcript file
+
+        Raises:
+            FileNotFoundError: If file doesn't exist
+            ValueError: If file is invalid (size, format, content)
         """
         path = Path(file_path)
-        
+
+        # Check file exists
         if not path.exists():
             raise FileNotFoundError(f"Transcript file not found: {file_path}")
-        
+
+        # Check file format
         if path.suffix not in ['.txt', '.md']:
-            raise ValueError(f"Unsupported file format: {path.suffix}")
-        
-        with open(path, 'r', encoding='utf-8') as f:
-            return f.read()
+            raise ValueError(
+                f"Unsupported file format: {path.suffix}. "
+                f"Supported formats: .txt, .md"
+            )
+
+        # Check file size
+        file_size = path.stat().st_size
+        if file_size == 0:
+            raise ValueError(f"File is empty: {file_path}")
+
+        if file_size > self.MAX_FILE_SIZE:
+            max_mb = self.MAX_FILE_SIZE / (1024 * 1024)
+            actual_mb = file_size / (1024 * 1024)
+            raise ValueError(
+                f"File too large: {actual_mb:.2f} MB. "
+                f"Maximum allowed: {max_mb:.0f} MB"
+            )
+
+    def validate_content(self, text: str) -> None:
+        """
+        Validate transcript content
+
+        Args:
+            text: Transcript text
+
+        Raises:
+            ValueError: If content is invalid
+        """
+        if not text or not text.strip():
+            raise ValueError("Transcript content is empty")
+
+        # Check word count
+        word_count = len(text.split())
+
+        if word_count < settings.MIN_TRANSCRIPT_LENGTH:
+            raise ValueError(
+                f"Transcript too short: {word_count} words. "
+                f"Minimum required: {settings.MIN_TRANSCRIPT_LENGTH} words"
+            )
+
+        if word_count > settings.MAX_TRANSCRIPT_LENGTH:
+            raise ValueError(
+                f"Transcript too long: {word_count} words. "
+                f"Maximum allowed: {settings.MAX_TRANSCRIPT_LENGTH} words"
+            )
+
+        # Check if text contains actual content (not just whitespace/special chars)
+        alphanumeric_chars = sum(c.isalnum() for c in text)
+        if alphanumeric_chars < 100:
+            raise ValueError(
+                "Transcript appears to contain invalid content "
+                "(too few alphanumeric characters)"
+            )
+
+    def load_transcript(self, file_path: str) -> str:
+        """
+        Load and validate transcript from file
+
+        Args:
+            file_path: Path to transcript file (.txt or .md)
+
+        Returns:
+            Raw transcript text
+
+        Raises:
+            FileNotFoundError: If file doesn't exist
+            ValueError: If file or content is invalid
+        """
+        # Validate file
+        self.validate_file(file_path)
+
+        # Load content
+        path = Path(file_path)
+        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+            text = f.read()
+
+        # Validate content
+        self.validate_content(text)
+
+        return text
     
     def extract_metadata(self, text: str) -> TranscriptMetadata:
         """

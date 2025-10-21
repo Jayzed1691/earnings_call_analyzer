@@ -5,6 +5,7 @@ Combines all analysis modules including deception detection
 from dataclasses import dataclass, asdict
 from typing import Dict, Any, List, Optional
 import json
+import logging
 from pathlib import Path
 from datetime import datetime
 
@@ -19,6 +20,10 @@ from src.analysis.deception.evasiveness import EvasivenessAnalyzer, EvasivenessS
 from src.analysis.deception.question_evasion import QuestionEvasionDetector, QuestionResponse
 
 from config.settings import settings
+from config.logging_config import PerformanceLogger
+
+# Module logger
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -75,31 +80,31 @@ class EarningsCallAnalyzer:
             use_llm_features: Whether to use LLM-based features (slower but more accurate)
             enable_deception_analysis: Whether to enable Phase 2A deception detection
         """
-        print("Initializing Earnings Call Analyzer...")
-        
+        logger.info("Initializing Earnings Call Analyzer...")
+
         # Phase 1 analyzers
         self.transcript_processor = TranscriptProcessor()
         self.sentiment_analyzer = HybridSentimentAnalyzer()
         self.complexity_analyzer = ComplexityAnalyzer()
         self.numerical_analyzer = NumericalAnalyzer(use_llm_contextualization=use_llm_features)
         self.use_llm = use_llm_features
-        
+
         # Phase 2A: Deception analyzers
         self.enable_deception = enable_deception_analysis and settings.ENABLE_DECEPTION_ANALYSIS
-        
+
         if self.enable_deception:
-            print("  → Initializing deception detection modules...")
+            logger.info("Initializing deception detection modules...")
             self.deception_analyzer = DeceptionRiskAnalyzer()
             self.evasiveness_analyzer = EvasivenessAnalyzer()
             self.qa_detector = QuestionEvasionDetector()
-            print("  ✓ Deception detection enabled")
+            logger.info("Deception detection enabled")
         else:
-            print("  → Deception detection disabled")
+            logger.info("Deception detection disabled")
             self.deception_analyzer = None
             self.evasiveness_analyzer = None
             self.qa_detector = None
-        
-        print("✓ Analyzer initialization complete\n")
+
+        logger.info("Analyzer initialization complete")
     
     def analyze_transcript(self, file_path: str) -> ComprehensiveAnalysisResult:
         """
@@ -111,48 +116,53 @@ class EarningsCallAnalyzer:
         Returns:
             ComprehensiveAnalysisResult object
         """
-        print(f"Processing transcript: {file_path}")
-        print("="*80)
-        
+        logger.info("="*80)
+        logger.info(f"Processing transcript: {file_path}")
+        logger.info("="*80)
+
         # Step 1: Process transcript
-        print("\n📄 STEP 1: TRANSCRIPT PREPROCESSING")
-        print("-"*80)
-        print("  → Preprocessing text...")
-        transcript = self.transcript_processor.process(file_path)
-        
-        # Validate
-        warnings = self.transcript_processor.validate_transcript(transcript)
-        if warnings:
-            print(f"  ⚠️  Warnings:")
-            for warning in warnings:
-                print(f"     - {warning}")
-        print(f"  ✓ Processed {transcript.word_count:,} words in {transcript.sentence_count} sentences")
-        
+        logger.info("STEP 1: TRANSCRIPT PREPROCESSING")
+        with PerformanceLogger("transcript_preprocessing", logger):
+            logger.info("Preprocessing text...")
+            transcript = self.transcript_processor.process(file_path)
+
+            # Validate
+            warnings = self.transcript_processor.validate_transcript(transcript)
+            if warnings:
+                logger.warning("Validation warnings detected:")
+                for warning in warnings:
+                    logger.warning(f"  - {warning}")
+            logger.info(f"Processed {transcript.word_count:,} words in {transcript.sentence_count} sentences")
+
         # Step 2: Phase 1 Analysis
-        print("\n📊 STEP 2: PHASE 1 CORE ANALYSIS")
-        print("-"*80)
-        
-        print("  → Analyzing overall sentiment...")
-        overall_sentiment = self.sentiment_analyzer.analyze(transcript.cleaned_text)
-        
-        print("  → Analyzing language complexity...")
-        overall_complexity = self.complexity_analyzer.analyze(transcript.cleaned_text)
-        
-        print("  → Analyzing numerical content...")
-        overall_numerical = self.numerical_analyzer.analyze(transcript.cleaned_text)
-        
+        logger.info("STEP 2: PHASE 1 CORE ANALYSIS")
+
+        with PerformanceLogger("sentiment_analysis", logger):
+            logger.info("Analyzing overall sentiment...")
+            overall_sentiment = self.sentiment_analyzer.analyze(transcript.cleaned_text)
+
+        with PerformanceLogger("complexity_analysis", logger):
+            logger.info("Analyzing language complexity...")
+            overall_complexity = self.complexity_analyzer.analyze(transcript.cleaned_text)
+
+        with PerformanceLogger("numerical_analysis", logger):
+            logger.info("Analyzing numerical content...")
+            overall_numerical = self.numerical_analyzer.analyze(transcript.cleaned_text)
+
         # Step 3: Section analysis
-        print("  → Analyzing sections (Prepared Remarks vs Q&A)...")
-        section_sentiment = self.sentiment_analyzer.analyze_by_section(transcript.sections)
-        section_complexity = self.complexity_analyzer.analyze_by_section(transcript.sections)
-        
+        with PerformanceLogger("section_analysis", logger):
+            logger.info("Analyzing sections (Prepared Remarks vs Q&A)...")
+            section_sentiment = self.sentiment_analyzer.analyze_by_section(transcript.sections)
+            section_complexity = self.complexity_analyzer.analyze_by_section(transcript.sections)
+
         # Step 4: Speaker analysis
-        print("  → Analyzing speakers...")
-        speaker_sentiment = self.sentiment_analyzer.analyze_by_speaker(transcript.speakers)
-        speaker_complexity = self.complexity_analyzer.analyze_by_speaker(transcript.speakers)
-        speaker_numerical = self.numerical_analyzer.analyze_by_speaker(transcript.speakers)
-        
-        print("  ✓ Phase 1 analysis complete")
+        with PerformanceLogger("speaker_analysis", logger):
+            logger.info("Analyzing speakers...")
+            speaker_sentiment = self.sentiment_analyzer.analyze_by_speaker(transcript.speakers)
+            speaker_complexity = self.complexity_analyzer.analyze_by_speaker(transcript.speakers)
+            speaker_numerical = self.numerical_analyzer.analyze_by_speaker(transcript.speakers)
+
+        logger.info("Phase 1 analysis complete")
         
         # Step 5: Phase 2A Deception Analysis
         deception_risk = None
@@ -160,50 +170,53 @@ class EarningsCallAnalyzer:
         qa_analysis = None
         
         if self.enable_deception:
-            print("\n🔍 STEP 3: PHASE 2A DECEPTION ANALYSIS")
-            print("-"*80)
-            
-            print("  → Analyzing deception risk indicators...")
-            deception_risk = self.deception_analyzer.analyze(
-                transcript=transcript,
-                sentiment_scores=overall_sentiment,
-                complexity_scores=overall_complexity,
-                numerical_scores=overall_numerical,
-                section_analysis={
-                    'prepared_remarks': section_complexity.get('prepared_remarks'),
-                    'qa': section_complexity.get('qa')
-                }
-            )
-            
-            print("  → Analyzing evasiveness patterns...")
-            evasiveness_scores = self.evasiveness_analyzer.analyze(transcript.cleaned_text)
-            
+            logger.info("STEP 3: PHASE 2A DECEPTION ANALYSIS")
+
+            with PerformanceLogger("deception_risk_analysis", logger):
+                logger.info("Analyzing deception risk indicators...")
+                deception_risk = self.deception_analyzer.analyze(
+                    transcript=transcript,
+                    sentiment_scores=overall_sentiment,
+                    complexity_scores=overall_complexity,
+                    numerical_scores=overall_numerical,
+                    section_analysis={
+                        'prepared_remarks': section_complexity.get('prepared_remarks'),
+                        'qa': section_complexity.get('qa')
+                    }
+                )
+
+            with PerformanceLogger("evasiveness_analysis", logger):
+                logger.info("Analyzing evasiveness patterns...")
+                evasiveness_scores = self.evasiveness_analyzer.analyze(transcript.cleaned_text)
+
             # Q&A analysis (if Q&A section exists)
             if transcript.sections.get('qa') and settings.ENABLE_QA_ANALYSIS:
-                print("  → Analyzing Q&A exchanges for evasion...")
-                qa_analysis = self.qa_detector.analyze_qa_section(transcript.sections['qa'])
-                print(f"     • Analyzed {len(qa_analysis)} Q&A pairs")
+                with PerformanceLogger("qa_evasion_analysis", logger):
+                    logger.info("Analyzing Q&A exchanges for evasion...")
+                    qa_analysis = self.qa_detector.analyze_qa_section(transcript.sections['qa'])
+                    logger.info(f"Analyzed {len(qa_analysis)} Q&A pairs")
             else:
-                print("  → No Q&A section found, skipping Q&A analysis")
-            
-            print("  ✓ Deception analysis complete")
-        
+                logger.info("No Q&A section found, skipping Q&A analysis")
+                qa_analysis = None
+
+            logger.info("Deception analysis complete")
+
         # Step 6: Generate insights
-        print("\n💡 STEP 4: GENERATING INSIGHTS")
-        print("-"*80)
-        print("  → Identifying patterns and generating insights...")
-        key_findings, red_flags, strengths = self._generate_insights(
-            overall_sentiment,
-            overall_complexity,
-            overall_numerical,
-            section_sentiment,
-            section_complexity,
-            deception_risk,
-            evasiveness_scores,
-            qa_analysis
-        )
-        
-        print(f"  ✓ Generated {len(key_findings)} findings, {len(red_flags)} red flags, {len(strengths)} strengths")
+        logger.info("STEP 4: GENERATING INSIGHTS")
+        with PerformanceLogger("insights_generation", logger):
+            logger.info("Identifying patterns and generating insights...")
+            key_findings, red_flags, strengths = self._generate_insights(
+                overall_sentiment,
+                overall_complexity,
+                overall_numerical,
+                section_sentiment,
+                section_complexity,
+                deception_risk,
+                evasiveness_scores,
+                qa_analysis
+            )
+
+            logger.info(f"Generated {len(key_findings)} findings, {len(red_flags)} red flags, {len(strengths)} strengths")
         
         # Compile results
         result = ComprehensiveAnalysisResult(
@@ -232,10 +245,10 @@ class EarningsCallAnalyzer:
             sentence_count=transcript.sentence_count
         )
         
-        print("\n" + "="*80)
-        print("✅ ANALYSIS COMPLETE!")
-        print("="*80)
-        
+        logger.info("="*80)
+        logger.info("ANALYSIS COMPLETE!")
+        logger.info("="*80)
+
         return result
     
     def _compile_speaker_metrics(
@@ -408,8 +421,8 @@ class EarningsCallAnalyzer:
         
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(results_dict, f, indent=2, default=str)
-        
-        print(f"\n💾 Results saved to: {output_path}")
+
+        logger.info(f"Results saved to: {output_path}")
     
     def print_summary(self, results: ComprehensiveAnalysisResult) -> None:
         """Print a human-readable summary of results - Phase 2 Enhanced"""

@@ -1,12 +1,17 @@
 """
 LLM-based contextual sentiment analysis using Ollama
+Enhanced with result caching for performance
 """
 from typing import Dict, List
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
+import logging
 import numpy as np
 from src.models.ollama_client import ollama_client
 from src.utils.text_utils import split_into_chunks, tokenize_sentences
+from src.cache.result_cache import get_cache
 from config.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -19,42 +24,61 @@ class LLMSentimentScores:
 
 
 class LLMSentimentAnalyzer:
-    """Contextual sentiment analysis using Ollama LLM"""
-    
-    def __init__(self):
-        """Initialize LLM analyzer"""
+    """Contextual sentiment analysis using Ollama LLM with caching"""
+
+    def __init__(self, use_cache: bool = True):
+        """
+        Initialize LLM analyzer
+
+        Args:
+            use_cache: Whether to use result caching (default: True)
+        """
         self.client = ollama_client
         self.sentiment_map = {
             "Positive": 1.0,
             "Negative": -1.0,
             "Neutral": 0.0
         }
+        self.cache = get_cache() if use_cache else None
     
     def analyze(self, text: str, use_chunks: bool = True) -> LLMSentimentScores:
         """
-        Analyze sentiment using LLM
-        
+        Analyze sentiment using LLM with caching
+
         Args:
             text: Text to analyze
             use_chunks: Whether to chunk long text
-            
+
         Returns:
             LLMSentimentScores object
         """
+        # Check cache first
+        if self.cache:
+            cached_result = self.cache.get(text, 'llm_sentiment')
+            if cached_result is not None:
+                return LLMSentimentScores(**cached_result)
+
+        # Perform analysis
         if use_chunks and len(text.split()) > settings.LLM_CHUNK_SIZE:
             # Process in chunks for long text
-            return self._analyze_chunked(text)
+            result = self._analyze_chunked(text)
         else:
             # Process as single segment
-            result = self.client.analyze_sentiment(text)
-            sentiment_score = self.sentiment_map.get(result['sentiment'], 0.0)
-            
-            return LLMSentimentScores(
-                overall_sentiment=result['sentiment'],
+            llm_result = self.client.analyze_sentiment(text)
+            sentiment_score = self.sentiment_map.get(llm_result['sentiment'], 0.0)
+
+            result = LLMSentimentScores(
+                overall_sentiment=llm_result['sentiment'],
                 sentiment_score=sentiment_score,
-                confidence=result['confidence'],
-                segment_sentiments=[result]
+                confidence=llm_result['confidence'],
+                segment_sentiments=[llm_result]
             )
+
+        # Cache the result
+        if self.cache:
+            self.cache.set(text, 'llm_sentiment', asdict(result))
+
+        return result
     
     def _analyze_chunked(self, text: str) -> LLMSentimentScores:
         """
@@ -87,7 +111,7 @@ class LLMSentimentAnalyzer:
                 confidences.append(result['confidence'])
                 
             except Exception as e:
-                print(f"Warning: Failed to analyze chunk {i}: {str(e)}")
+                logger.warning(f"Failed to analyze chunk {i}: {str(e)}")
                 # Add neutral default
                 segment_results.append({
                     'sentiment': 'Neutral',
@@ -180,6 +204,6 @@ class LLMSentimentAnalyzer:
                 result['index'] = i
                 sentence_results.append(result)
             except Exception as e:
-                print(f"Warning: Failed to analyze sentence {i}: {str(e)}")
+                logger.warning(f"Failed to analyze sentence {i}: {str(e)}")
         
         return sentence_results
