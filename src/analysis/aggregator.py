@@ -19,6 +19,14 @@ from src.analysis.deception.detector import DeceptionRiskAnalyzer, DeceptionRisk
 from src.analysis.deception.evasiveness import EvasivenessAnalyzer, EvasivenessScores
 from src.analysis.deception.question_evasion import QuestionEvasionDetector, QuestionResponse
 
+# Phase 2B: Sentence-Level Numeric Density Imports
+from src.analysis.numerical.sentence_density import (
+    SentenceLevelDensityAnalyzer,
+    SentenceDensityMetrics,
+    DistributionPattern,
+    InformativenessMetrics
+)
+
 from config.settings import settings
 from config.logging_config import PerformanceLogger
 
@@ -54,12 +62,17 @@ class ComprehensiveAnalysisResult:
     deception_risk: Optional[DeceptionRiskScore] = None
     evasiveness_scores: Optional[EvasivenessScores] = None
     qa_analysis: Optional[List[QuestionResponse]] = None
-    
+
+    # Phase 2B: Sentence-Level Numeric Density
+    sentence_density_metrics: Optional[SentenceDensityMetrics] = None
+    distribution_patterns: Optional[DistributionPattern] = None
+    informativeness_metrics: Optional[InformativenessMetrics] = None
+
     # Key insights
     key_findings: List[str]
     red_flags: List[str]
     strengths: List[str]
-    
+
     # Raw transcript info
     word_count: int
     sentence_count: int
@@ -88,6 +101,10 @@ class EarningsCallAnalyzer:
         self.complexity_analyzer = ComplexityAnalyzer()
         self.numerical_analyzer = NumericalAnalyzer(use_llm_contextualization=use_llm_features)
         self.use_llm = use_llm_features
+
+        # Phase 2B: Sentence-level density analyzer
+        self.sentence_density_analyzer = SentenceLevelDensityAnalyzer()
+        logger.info("Sentence-level density analyzer initialized")
 
         # Phase 2A: Deception analyzers
         self.enable_deception = enable_deception_analysis and settings.ENABLE_DECEPTION_ANALYSIS
@@ -201,6 +218,43 @@ class EarningsCallAnalyzer:
 
             logger.info("Deception analysis complete")
 
+        # Step 5.5: Phase 2B Sentence-Level Numeric Density Analysis
+        logger.info("STEP 3.5: PHASE 2B SENTENCE-LEVEL DENSITY ANALYSIS")
+        sentence_density_metrics = None
+        distribution_patterns = None
+        informativeness_metrics = None
+
+        with PerformanceLogger("sentence_density_analysis", logger):
+            logger.info("Analyzing sentence-level numeric density...")
+            sentence_density_metrics = self.sentence_density_analyzer.analyze_sentence_density(
+                transcript.cleaned_text
+            )
+            logger.info(f"Analyzed {sentence_density_metrics.total_sentences} sentences")
+            logger.info(f"Dense sentences: {sentence_density_metrics.numeric_dense_sentences} ({sentence_density_metrics.proportion_numeric_dense:.1%})")
+
+        with PerformanceLogger("distribution_pattern_analysis", logger):
+            logger.info("Analyzing numeric distribution patterns...")
+            distribution_patterns = self.sentence_density_analyzer.analyze_distribution_patterns(
+                sentence_density_metrics,
+                sections=transcript.sections,
+                speakers=transcript.speakers
+            )
+            logger.info(f"Pattern: {distribution_patterns.pattern_type} (confidence: {distribution_patterns.pattern_confidence:.1%})")
+            logger.info(f"Clusters detected: {distribution_patterns.cluster_count}")
+
+        with PerformanceLogger("informativeness_calculation", logger):
+            logger.info("Calculating informativeness metrics...")
+            informativeness_metrics = self.sentence_density_analyzer.calculate_informativeness(
+                sentence_density_metrics,
+                overall_numerical,
+                distribution_patterns
+            )
+            logger.info(f"NIR: {informativeness_metrics.numeric_inclusion_ratio:.2%}")
+            logger.info(f"Informativeness: {informativeness_metrics.informativeness_score:.1f}/100")
+            logger.info(f"Forecast Relevance: {informativeness_metrics.forecast_relevance_score:.1f}/100")
+
+        logger.info("Sentence-level density analysis complete")
+
         # Step 6: Generate insights
         logger.info("STEP 4: GENERATING INSIGHTS")
         with PerformanceLogger("insights_generation", logger):
@@ -238,6 +292,9 @@ class EarningsCallAnalyzer:
             deception_risk=deception_risk,
             evasiveness_scores=evasiveness_scores,
             qa_analysis=qa_analysis,
+            sentence_density_metrics=sentence_density_metrics,
+            distribution_patterns=distribution_patterns,
+            informativeness_metrics=informativeness_metrics,
             key_findings=key_findings,
             red_flags=red_flags,
             strengths=strengths,
@@ -496,17 +553,89 @@ class EarningsCallAnalyzer:
             total_qa = len(results.qa_analysis)
             evasive = sum(1 for qa in results.qa_analysis if qa.is_evasive)
             evasion_rate = (evasive / total_qa * 100) if total_qa > 0 else 0
-            
+
             print(f"Total Q&A Pairs:        {total_qa}")
             print(f"Evasive Responses:      {evasive} ({evasion_rate:.1f}%)")
-            
+
             if evasive > 0:
                 print(f"\nMost Evasive Questions:")
                 sorted_qa = sorted(results.qa_analysis, key=lambda x: x.response_relevance)
                 for i, qa in enumerate(sorted_qa[:3], 1):
                     print(f"  {i}. Relevance: {qa.response_relevance:.2f} | Type: {qa.evasion_type}")
                     print(f"     Q: {qa.question[:100]}...")
-        
+
+        # ===== PHASE 2B: SENTENCE-LEVEL DENSITY =====
+        if results.sentence_density_metrics:
+            print("\n📈 PHASE 2B: SENTENCE-LEVEL NUMERIC DENSITY")
+            print("-" * 80)
+            sdm = results.sentence_density_metrics
+
+            # Sentence classification
+            print(f"Sentence Classification:")
+            print(f"  • Total Sentences:    {sdm.total_sentences}")
+            print(f"  • Dense (>10%):       {sdm.numeric_dense_sentences} ({sdm.proportion_numeric_dense:.1%})")
+            print(f"  • Moderate (5-10%):   {sdm.numeric_moderate_sentences}")
+            print(f"  • Sparse (1-5%):      {sdm.numeric_sparse_sentences}")
+            print(f"  • Narrative (0%):     {sdm.narrative_sentences} ({sdm.proportion_narrative:.1%})")
+
+            # Statistics
+            print(f"\nDensity Statistics:")
+            print(f"  • Mean:               {sdm.mean_numeric_density:.2f}%")
+            print(f"  • Median:             {sdm.median_numeric_density:.2f}%")
+            print(f"  • Std Dev:            {sdm.std_numeric_density:.2f}%")
+            print(f"  • Max:                {sdm.max_numeric_density:.2f}%")
+
+            # Top dense sentences
+            if sdm.top_dense_sentences:
+                print(f"\nTop 3 Most Numeric Sentences:")
+                for i, (sentence, density) in enumerate(sdm.top_dense_sentences[:3], 1):
+                    preview = sentence.strip()[:65] + "..." if len(sentence.strip()) > 65 else sentence.strip()
+                    print(f"  {i}. [{density:.1f}%] {preview}")
+
+        # Distribution patterns
+        if results.distribution_patterns:
+            print("\n📊 DISTRIBUTION PATTERNS")
+            print("-" * 80)
+            dp = results.distribution_patterns
+
+            print(f"Pattern Type:           {dp.pattern_type.upper()} (confidence: {dp.pattern_confidence:.1%})")
+            print(f"Clusters Detected:      {dp.cluster_count}")
+            print(f"\nPositional Density:")
+            print(f"  • Beginning (20%):    {dp.beginning_density:.2f}%")
+            print(f"  • Middle (60%):       {dp.middle_density:.2f}%")
+            print(f"  • End (20%):          {dp.end_density:.2f}%")
+
+            if dp.qa_density_differential != 0.0:
+                print(f"\nQ&A Differential:")
+                print(f"  • Questions:          {dp.question_avg_density:.2f}%")
+                print(f"  • Answers:            {dp.answer_avg_density:.2f}%")
+                diff_dir = "higher" if dp.qa_density_differential > 0 else "lower"
+                print(f"  • Differential:       {abs(dp.qa_density_differential):.2f}% ({diff_dir} in answers)")
+
+        # Informativeness metrics
+        if results.informativeness_metrics:
+            print("\n💡 INFORMATIVENESS METRICS")
+            print("-" * 80)
+            im = results.informativeness_metrics
+
+            print(f"Numeric Inclusion Ratio: {im.numeric_inclusion_ratio:.2%}")
+            print(f"Informativeness Score:   {im.informativeness_score:.1f}/100 ({im.quantitative_disclosure_level})")
+            print(f"Forecast Relevance:      {im.forecast_relevance_score:.1f}/100")
+            print(f"Transparency Tier:       {im.transparency_tier.replace('_', ' ').title()}")
+            print(f"\nRisk Signals:")
+            print(f"  • Numeric Avoidance:  {im.numeric_avoidance_risk:.1f}/100")
+            print(f"  • Vagueness Penalty:  {im.vagueness_penalty:.1f}/100")
+
+        # ASCII Heatmap
+        if results.distribution_patterns and results.sentence_density_metrics:
+            print("\n🔥 NUMERIC DENSITY HEATMAP")
+            print("-" * 80)
+            heatmap = self.sentence_density_analyzer.generate_ascii_heatmap(
+                results.distribution_patterns,
+                results.sentence_density_metrics
+            )
+            print(heatmap)
+
         # ===== RED FLAGS =====
         if results.red_flags:
             print("\n🚩 RED FLAGS")
