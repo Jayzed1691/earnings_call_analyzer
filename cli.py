@@ -248,8 +248,8 @@ def batch(directory, format, with_deception):
 			output_path = file_path.with_suffix('.results.json')
 			analyzer.save_results(results, str(output_path))
 			
-			# Add to batch results
-			results_list.append({
+			# Add to batch results with Phase 2B metrics
+			batch_record = {
 				'file': file_path.name,
 				'company': results.company_name,
 				'quarter': results.quarter,
@@ -259,7 +259,39 @@ def batch(directory, format, with_deception):
 				'transparency_score': results.overall_numerical.numeric_transparency_score,
 				'deception_risk_score': results.deception_risk.overall_risk_score if results.deception_risk else None,
 				'evasiveness_score': results.evasiveness_scores.overall_evasiveness if results.evasiveness_scores else None,
-			})
+			}
+
+			# Add Phase 2B metrics if available
+			if results.sentence_density_metrics:
+				sdm = results.sentence_density_metrics
+				batch_record.update({
+					'total_sentences': sdm.total_sentences,
+					'dense_sentences': sdm.numeric_dense_sentences,
+					'proportion_dense': round(sdm.proportion_numeric_dense * 100, 2),
+					'mean_density': round(sdm.mean_numeric_density, 2),
+				})
+
+			if results.distribution_patterns:
+				dp = results.distribution_patterns
+				batch_record.update({
+					'pattern_type': dp.pattern_type,
+					'pattern_confidence': round(dp.pattern_confidence * 100, 1),
+					'beginning_density': round(dp.beginning_density, 2),
+					'middle_density': round(dp.middle_density, 2),
+					'end_density': round(dp.end_density, 2),
+					'qa_differential': round(dp.qa_density_differential, 2),
+				})
+
+			if results.informativeness_metrics:
+				im = results.informativeness_metrics
+				batch_record.update({
+					'nir': round(im.numeric_inclusion_ratio * 100, 2),
+					'informativeness_score': round(im.informativeness_score, 1),
+					'forecast_relevance': round(im.forecast_relevance_score, 1),
+					'transparency_tier': im.transparency_tier,
+				})
+
+			results_list.append(batch_record)
 			
 		except Exception as e:
 			click.echo(f"  ❌ Error: {str(e)}")
@@ -549,6 +581,310 @@ def prepare(input_file, output, validate_only):
 		click.echo(f"   1. Review the transcript: cat {output_path}")
 		click.echo(f"   2. Run analysis: python cli.py analyze {output_path} --summary")
 		click.echo("="*70)
+
+
+@cli.command()
+@click.argument('results_file', type=click.Path(exists=True))
+@click.option('--output', '-o', help='Output Excel file path', default=None)
+@click.option('--include-charts', is_flag=True, default=True, help='Include charts in Excel export')
+def export_excel(results_file, output, include_charts):
+	"""
+	Export analysis results to formatted Excel spreadsheet
+
+	Creates a comprehensive Excel workbook with:
+	- Summary dashboard
+	- Detailed metrics tables
+	- Charts and visualizations
+	- Heatmaps and distribution graphics
+
+	Example:
+		earnings-analyzer export-excel results.json -o report.xlsx
+	"""
+	try:
+		from openpyxl import Workbook
+		from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+		from openpyxl.chart import BarChart, LineChart, Reference
+		from openpyxl.utils import get_column_letter
+	except ImportError:
+		click.echo("❌ Error: openpyxl is required for Excel export")
+		click.echo("Install it with: pip install openpyxl")
+		return
+
+	# Load results
+	click.echo(f"\n📊 Loading results from: {results_file}")
+	with open(results_file, 'r') as f:
+		data = json.load(f)
+
+	# Create workbook
+	wb = Workbook()
+	wb.remove(wb.active)  # Remove default sheet
+
+	# Define styles
+	header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+	header_font = Font(bold=True, color="FFFFFF", size=12)
+	subheader_fill = PatternFill(start_color="B4C7E7", end_color="B4C7E7", fill_type="solid")
+	subheader_font = Font(bold=True, size=11)
+	title_font = Font(bold=True, size=14)
+	border = Border(
+		left=Side(style='thin'),
+		right=Side(style='thin'),
+		top=Side(style='thin'),
+		bottom=Side(style='thin')
+	)
+
+	# Sheet 1: Summary Dashboard
+	ws_summary = wb.create_sheet("Summary Dashboard")
+	ws_summary.column_dimensions['A'].width = 30
+	ws_summary.column_dimensions['B'].width = 20
+
+	row = 1
+
+	# Title
+	ws_summary[f'A{row}'] = "EARNINGS CALL ANALYSIS REPORT"
+	ws_summary[f'A{row}'].font = title_font
+	row += 2
+
+	# Company info
+	ws_summary[f'A{row}'] = "Company:"
+	ws_summary[f'B{row}'] = data.get('company_name', 'N/A')
+	ws_summary[f'A{row}'].font = Font(bold=True)
+	row += 1
+
+	ws_summary[f'A{row}'] = "Quarter:"
+	ws_summary[f'B{row}'] = f"{data.get('quarter', 'N/A')} {data.get('year', '')}"
+	ws_summary[f'A{row}'].font = Font(bold=True)
+	row += 2
+
+	# Key Metrics Section
+	ws_summary[f'A{row}'] = "KEY METRICS"
+	ws_summary[f'A{row}'].font = header_font
+	ws_summary[f'A{row}'].fill = header_fill
+	ws_summary[f'B{row}'].fill = header_fill
+	row += 1
+
+	# Sentiment
+	if 'overall_sentiment' in data:
+		sent = data['overall_sentiment']
+		ws_summary[f'A{row}'] = "Sentiment Score"
+		ws_summary[f'B{row}'] = round(sent.get('hybrid_sentiment_score', 0), 2)
+		row += 1
+		ws_summary[f'A{row}'] = "Sentiment Label"
+		ws_summary[f'B{row}'] = sent.get('hybrid_label', 'N/A')
+		row += 1
+
+	# Complexity
+	if 'overall_complexity' in data:
+		comp = data['overall_complexity']
+		ws_summary[f'A{row}'] = "Complexity Score"
+		ws_summary[f'B{row}'] = round(comp.get('composite_score', 0), 1)
+		row += 1
+		ws_summary[f'A{row}'] = "Complexity Level"
+		ws_summary[f'B{row}'] = comp.get('complexity_level', 'N/A')
+		row += 1
+
+	# Numerical Analysis
+	if 'overall_numerical' in data:
+		num = data['overall_numerical']
+		ws_summary[f'A{row}'] = "Numeric Transparency"
+		ws_summary[f'B{row}'] = f"{round(num.get('numeric_transparency_score', 0), 2)}%"
+		row += 1
+
+	# Phase 2B Metrics
+	if 'informativeness_metrics' in data:
+		row += 1
+		ws_summary[f'A{row}'] = "PHASE 2B: INFORMATIVENESS"
+		ws_summary[f'A{row}'].font = header_font
+		ws_summary[f'A{row}'].fill = header_fill
+		ws_summary[f'B{row}'].fill = header_fill
+		row += 1
+
+		im = data['informativeness_metrics']
+		ws_summary[f'A{row}'] = "Numeric Inclusion Ratio (NIR)"
+		ws_summary[f'B{row}'] = f"{round(im.get('numeric_inclusion_ratio', 0) * 100, 2)}%"
+		row += 1
+
+		ws_summary[f'A{row}'] = "Informativeness Score"
+		ws_summary[f'B{row}'] = round(im.get('informativeness_score', 0), 1)
+		row += 1
+
+		ws_summary[f'A{row}'] = "Forecast Relevance Score"
+		ws_summary[f'B{row}'] = round(im.get('forecast_relevance_score', 0), 1)
+		row += 1
+
+		ws_summary[f'A{row}'] = "Transparency Tier"
+		ws_summary[f'B{row}'] = im.get('transparency_tier', 'N/A')
+		row += 1
+
+	# Deception Risk
+	if 'deception_risk' in data and data['deception_risk']:
+		row += 1
+		ws_summary[f'A{row}'] = "DECEPTION RISK"
+		ws_summary[f'A{row}'].font = header_font
+		ws_summary[f'A{row}'].fill = header_fill
+		ws_summary[f'B{row}'].fill = header_fill
+		row += 1
+
+		risk = data['deception_risk']
+		ws_summary[f'A{row}'] = "Risk Level"
+		ws_summary[f'B{row}'] = risk.get('risk_level', 'N/A')
+
+		# Color code risk level
+		risk_level = risk.get('risk_level', '').upper()
+		if 'HIGH' in risk_level or 'CRITICAL' in risk_level:
+			ws_summary[f'B{row}'].fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
+			ws_summary[f'B{row}'].font = Font(color="FFFFFF", bold=True)
+		elif 'MEDIUM' in risk_level:
+			ws_summary[f'B{row}'].fill = PatternFill(start_color="FFC000", end_color="FFC000", fill_type="solid")
+		elif 'LOW' in risk_level:
+			ws_summary[f'B{row}'].fill = PatternFill(start_color="00B050", end_color="00B050", fill_type="solid")
+			ws_summary[f'B{row}'].font = Font(color="FFFFFF", bold=True)
+
+		row += 1
+		ws_summary[f'A{row}'] = "Risk Score"
+		ws_summary[f'B{row}'] = round(risk.get('overall_risk_score', 0), 1)
+		row += 1
+
+	# Sheet 2: Sentence Density Details
+	if 'sentence_density_metrics' in data:
+		ws_density = wb.create_sheet("Sentence Density")
+		ws_density.column_dimensions['A'].width = 30
+		ws_density.column_dimensions['B'].width = 15
+
+		sdm = data['sentence_density_metrics']
+
+		row = 1
+		ws_density[f'A{row}'] = "SENTENCE-LEVEL DENSITY METRICS"
+		ws_density[f'A{row}'].font = title_font
+		row += 2
+
+		# Add metrics
+		metrics_to_show = [
+			('Total Sentences', sdm.get('total_sentences')),
+			('Dense Sentences (>10%)', sdm.get('numeric_dense_sentences')),
+			('Moderate Sentences (5-10%)', sdm.get('numeric_moderate_sentences')),
+			('Sparse Sentences (1-5%)', sdm.get('numeric_sparse_sentences')),
+			('Narrative Sentences (0%)', sdm.get('narrative_sentences')),
+			('', ''),
+			('Mean Density (%)', round(sdm.get('mean_numeric_density', 0), 2)),
+			('Median Density (%)', round(sdm.get('median_numeric_density', 0), 2)),
+			('Max Density (%)', round(sdm.get('max_numeric_density', 0), 2)),
+			('Std Dev Density', round(sdm.get('std_numeric_density', 0), 2)),
+			('', ''),
+			('Proportion Dense', f"{round(sdm.get('proportion_numeric_dense', 0) * 100, 2)}%"),
+			('Proportion Narrative', f"{round(sdm.get('proportion_narrative', 0) * 100, 2)}%"),
+		]
+
+		for label, value in metrics_to_show:
+			ws_density[f'A{row}'] = label
+			ws_density[f'B{row}'] = value
+			if label and not any(char.isdigit() for char in str(label)):
+				ws_density[f'A{row}'].font = Font(bold=True)
+			row += 1
+
+		# Add chart if enabled
+		if include_charts and sdm.get('numeric_dense_sentences'):
+			row += 2
+			ws_density[f'A{row}'] = "SENTENCE DISTRIBUTION"
+			ws_density[f'A{row}'].font = subheader_font
+			row += 1
+
+			# Prepare chart data
+			categories = ['Dense\n(>10%)', 'Moderate\n(5-10%)', 'Sparse\n(1-5%)', 'Narrative\n(0%)']
+			values = [
+				sdm.get('numeric_dense_sentences', 0),
+				sdm.get('numeric_moderate_sentences', 0),
+				sdm.get('numeric_sparse_sentences', 0),
+				sdm.get('narrative_sentences', 0)
+			]
+
+			# Write chart data
+			for i, (cat, val) in enumerate(zip(categories, values), 1):
+				ws_density[f'D{row + i}'] = cat
+				ws_density[f'E{row + i}'] = val
+
+			# Create bar chart
+			chart = BarChart()
+			chart.title = "Sentence Distribution by Numeric Density"
+			chart.y_axis.title = "Number of Sentences"
+
+			data_ref = Reference(ws_density, min_col=5, min_row=row+1, max_row=row+4)
+			cats_ref = Reference(ws_density, min_col=4, min_row=row+1, max_row=row+4)
+			chart.add_data(data_ref, titles_from_data=False)
+			chart.set_categories(cats_ref)
+
+			ws_density.add_chart(chart, f'D{row + 7}')
+
+	# Sheet 3: Distribution Patterns
+	if 'distribution_patterns' in data:
+		ws_dist = wb.create_sheet("Distribution Patterns")
+		ws_dist.column_dimensions['A'].width = 30
+		ws_dist.column_dimensions['B'].width = 20
+
+		dp = data['distribution_patterns']
+
+		row = 1
+		ws_dist[f'A{row}'] = "DISTRIBUTION PATTERNS"
+		ws_dist[f'A{row}'].font = title_font
+		row += 2
+
+		ws_dist[f'A{row}'] = "Pattern Type"
+		ws_dist[f'B{row}'] = dp.get('pattern_type', 'N/A').upper()
+		ws_dist[f'B{row}'].font = Font(bold=True, size=12)
+		row += 1
+
+		ws_dist[f'A{row}'] = "Pattern Confidence"
+		ws_dist[f'B{row}'] = f"{round(dp.get('pattern_confidence', 0) * 100, 1)}%"
+		row += 2
+
+		ws_dist[f'A{row}'] = "POSITIONAL DENSITY"
+		ws_dist[f'A{row}'].font = subheader_font
+		ws_dist[f'A{row}'].fill = subheader_fill
+		ws_dist[f'B{row}'].fill = subheader_fill
+		row += 1
+
+		positions = [
+			('Beginning (First 20%)', dp.get('beginning_density', 0)),
+			('Middle (Middle 60%)', dp.get('middle_density', 0)),
+			('End (Last 20%)', dp.get('end_density', 0)),
+		]
+
+		for label, value in positions:
+			ws_dist[f'A{row}'] = label
+			ws_dist[f'B{row}'] = f"{round(value, 2)}%"
+			row += 1
+
+		row += 1
+		ws_dist[f'A{row}'] = "Q&A ANALYSIS"
+		ws_dist[f'A{row}'].font = subheader_font
+		ws_dist[f'A{row}'].fill = subheader_fill
+		ws_dist[f'B{row}'].fill = subheader_fill
+		row += 1
+
+		ws_dist[f'A{row}'] = "Q&A Density Differential"
+		ws_dist[f'B{row}'] = f"{round(dp.get('qa_density_differential', 0), 2)}%"
+		row += 1
+
+		ws_dist[f'A{row}'] = "Question Avg Density"
+		ws_dist[f'B{row}'] = f"{round(dp.get('question_avg_density', 0), 2)}%"
+		row += 1
+
+		ws_dist[f'A{row}'] = "Answer Avg Density"
+		ws_dist[f'B{row}'] = f"{round(dp.get('answer_avg_density', 0), 2)}%"
+		row += 1
+
+	# Determine output path
+	if output:
+		output_path = Path(output)
+	else:
+		results_path = Path(results_file)
+		output_path = results_path.with_suffix('.xlsx')
+
+	# Save workbook
+	wb.save(str(output_path))
+
+	click.echo(f"\n✓ Excel report saved to: {output_path}")
+	click.echo(f"   Sheets created: {len(wb.sheetnames)}")
+	click.echo(f"   Charts included: {include_charts}")
 
 
 @cli.command()
