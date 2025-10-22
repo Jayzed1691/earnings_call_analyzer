@@ -281,8 +281,276 @@ def batch(directory, format, with_deception):
 				
 	click.echo(f"\n✓ Batch processing complete!")
 	click.echo(f"Summary saved to: {batch_output}")
-	
-	
+
+
+@cli.command()
+@click.argument('input_file', type=click.Path(exists=True), required=False)
+@click.option('--output', '-o', help='Output file path for formatted transcript', default=None)
+@click.option('--validate-only', is_flag=True, help='Only validate, do not save')
+def prepare(input_file, output, validate_only):
+	"""
+	Interactive transcript preparation wizard for non-technical users
+
+	Guides you through:
+	- Metadata entry (company, ticker, quarter, year, date)
+	- Speaker identification and correction
+	- Section validation
+	- Format verification
+
+	Example:
+		earnings-analyzer prepare raw_transcript.txt -o formatted.txt
+		earnings-analyzer prepare  # Interactive mode from scratch
+	"""
+	from src.core.transcript_processor import TranscriptProcessor, TranscriptMetadata
+	import re
+	from datetime import datetime
+
+	click.echo("\n" + "="*70)
+	click.echo("📝 TRANSCRIPT PREPARATION WIZARD")
+	click.echo("="*70)
+	click.echo("\nThis wizard will help you prepare an earnings call transcript")
+	click.echo("for analysis. Follow the prompts to provide required information.\n")
+
+	# Step 1: Load or create transcript text
+	if input_file:
+		click.echo(f"📂 Loading transcript from: {input_file}")
+		with open(input_file, 'r', encoding='utf-8') as f:
+			transcript_text = f.read()
+		click.echo(f"   ✓ Loaded {len(transcript_text)} characters\n")
+	else:
+		click.echo("📝 No input file provided. You can paste transcript text.\n")
+		click.echo("Paste your transcript (press Ctrl+D when done on Unix/Mac, Ctrl+Z then Enter on Windows):")
+		import sys
+		transcript_text = sys.stdin.read()
+		if not transcript_text.strip():
+			click.echo("❌ No text provided. Exiting.")
+			return
+
+	# Step 2: Collect metadata interactively
+	click.echo("\n" + "-"*70)
+	click.echo("STEP 1: METADATA ENTRY")
+	click.echo("-"*70)
+
+	company_name = click.prompt("Company Name (e.g., 'TechCorp Industries')", type=str)
+
+	# Ticker validation
+	while True:
+		ticker = click.prompt("Stock Ticker (e.g., 'TECH')", type=str).upper()
+		if re.match(r'^[A-Z]{1,5}$', ticker):
+			break
+		click.echo("   ⚠ Ticker should be 1-5 uppercase letters. Try again.")
+
+	# Quarter selection
+	quarter = click.prompt("Quarter", type=click.Choice(['Q1', 'Q2', 'Q3', 'Q4'], case_sensitive=False)).upper()
+
+	# Year validation
+	current_year = datetime.now().year
+	while True:
+		year = click.prompt("Year", type=int, default=current_year)
+		if 2000 <= year <= current_year + 1:
+			break
+		click.echo(f"   ⚠ Year should be between 2000 and {current_year + 1}. Try again.")
+
+	# Date entry (optional but recommended)
+	date_str = click.prompt("Call Date (MM/DD/YYYY)", default="", show_default=False)
+	if date_str:
+		try:
+			datetime.strptime(date_str, "%m/%d/%Y")
+		except ValueError:
+			click.echo("   ⚠ Invalid date format, leaving blank")
+			date_str = ""
+
+	click.echo("\n✓ Metadata collected:")
+	click.echo(f"   Company: {company_name}")
+	click.echo(f"   Ticker: {ticker}")
+	click.echo(f"   Quarter: {quarter}")
+	click.echo(f"   Year: {year}")
+	if date_str:
+		click.echo(f"   Date: {date_str}")
+
+	# Step 3: Parse and validate transcript structure
+	click.echo("\n" + "-"*70)
+	click.echo("STEP 2: TRANSCRIPT VALIDATION")
+	click.echo("-"*70)
+
+	processor = TranscriptProcessor()
+
+	# Check if transcript already has metadata header
+	has_header = transcript_text.strip().startswith("Company:")
+
+	if has_header:
+		click.echo("✓ Transcript appears to have metadata header")
+		# Try to parse it
+		try:
+			temp_path = Path(input_file) if input_file else Path("temp_transcript.txt")
+			if not input_file:
+				with open(temp_path, 'w', encoding='utf-8') as f:
+					f.write(transcript_text)
+
+			parsed = processor.process_file(str(temp_path))
+
+			click.echo(f"✓ Successfully parsed transcript")
+			click.echo(f"   - Word count: {parsed.word_count}")
+			click.echo(f"   - Sentence count: {parsed.sentence_count}")
+			click.echo(f"   - Speakers detected: {len(parsed.speakers)}")
+			click.echo(f"   - Sections detected: {len(parsed.sections)}")
+
+			if parsed.speakers:
+				click.echo(f"\n   Detected speakers:")
+				for speaker in list(parsed.speakers.keys())[:5]:
+					click.echo(f"      • {speaker}")
+				if len(parsed.speakers) > 5:
+					click.echo(f"      ... and {len(parsed.speakers) - 5} more")
+
+			if parsed.sections:
+				click.echo(f"\n   Detected sections:")
+				for section in parsed.sections.keys():
+					click.echo(f"      • {section}")
+
+			# Ask if user wants to update metadata
+			if click.confirm("\n   Do you want to update the metadata in the transcript?", default=False):
+				has_header = False  # Will rebuild with new metadata
+			else:
+				# Use existing structure
+				if validate_only:
+					click.echo("\n✓ Validation complete. Transcript is properly formatted.")
+					return
+
+				if output:
+					# Just copy to output
+					with open(output, 'w', encoding='utf-8') as f:
+						f.write(transcript_text)
+					click.echo(f"\n✓ Transcript saved to: {output}")
+				else:
+					click.echo("\n✓ Transcript is ready for analysis.")
+					click.echo(f"   Run: python cli.py analyze {input_file}")
+				return
+
+		except Exception as e:
+			click.echo(f"⚠ Parsing failed: {str(e)}")
+			click.echo("   Will help you format the transcript...")
+			has_header = False
+
+	# Step 4: Build formatted transcript
+	if not has_header:
+		click.echo("\n" + "-"*70)
+		click.echo("STEP 3: FORMATTING TRANSCRIPT")
+		click.echo("-"*70)
+
+		# Build metadata header
+		formatted_lines = [
+			f"Company: {company_name}",
+			f"Ticker: {ticker}",
+			f"Quarter: {quarter}",
+			f"Year: {year}",
+		]
+
+		if date_str:
+			formatted_lines.append(f"Date: {date_str}")
+
+		formatted_lines.append("")  # Blank line
+
+		# Check if transcript has section markers
+		has_sections = any(marker in transcript_text.upper() for marker in [
+			"PREPARED REMARKS", "Q&A", "QUESTIONS AND ANSWERS", "OPERATOR:"
+		])
+
+		if has_sections:
+			click.echo("✓ Detected section markers in transcript")
+			# Just append the content
+			formatted_lines.append(transcript_text.strip())
+		else:
+			click.echo("⚠ No section markers detected")
+			click.echo("\nTranscript should have sections like:")
+			click.echo("   PREPARED REMARKS")
+			click.echo("   QUESTIONS AND ANSWERS")
+			click.echo("\nYou can add these manually or the system will treat it as one section.")
+
+			if click.confirm("   Add 'PREPARED REMARKS' header?", default=True):
+				formatted_lines.append("PREPARED REMARKS")
+				formatted_lines.append("")
+
+			formatted_lines.append(transcript_text.strip())
+
+		final_transcript = "\n".join(formatted_lines)
+
+		# Preview
+		click.echo("\n" + "-"*70)
+		click.echo("PREVIEW (first 500 characters):")
+		click.echo("-"*70)
+		click.echo(final_transcript[:500])
+		if len(final_transcript) > 500:
+			click.echo("...")
+		click.echo("-"*70)
+
+		# Validate the formatted transcript
+		click.echo("\n⏳ Validating formatted transcript...")
+
+		try:
+			# Save to temp file for validation
+			temp_path = Path("temp_validation.txt")
+			with open(temp_path, 'w', encoding='utf-8') as f:
+				f.write(final_transcript)
+
+			parsed = processor.process_file(str(temp_path))
+
+			click.echo("✓ Validation successful!")
+			click.echo(f"   - Word count: {parsed.word_count}")
+			click.echo(f"   - Sentence count: {parsed.sentence_count}")
+			click.echo(f"   - Speakers detected: {len(parsed.speakers)}")
+
+			# Check for potential issues
+			warnings = []
+			if parsed.word_count < settings.MIN_TRANSCRIPT_LENGTH:
+				warnings.append(f"Word count ({parsed.word_count}) is below recommended minimum ({settings.MIN_TRANSCRIPT_LENGTH})")
+			if len(parsed.speakers) == 0:
+				warnings.append("No speakers detected - make sure to use format 'Name - Title: text'")
+			if len(parsed.sections) < 2:
+				warnings.append("Only one section detected - consider adding section markers")
+
+			if warnings:
+				click.echo("\n⚠ Warnings:")
+				for warning in warnings:
+					click.echo(f"   • {warning}")
+
+			# Clean up temp file
+			temp_path.unlink()
+
+		except Exception as e:
+			click.echo(f"❌ Validation failed: {str(e)}")
+			click.echo("\nPlease check the format and try again.")
+			if temp_path.exists():
+				temp_path.unlink()
+			return
+
+		# Step 5: Save or display
+		if validate_only:
+			click.echo("\n✓ Validation complete. Transcript is properly formatted.")
+			return
+
+		# Determine output path
+		if output:
+			output_path = Path(output)
+		elif input_file:
+			input_path = Path(input_file)
+			output_path = input_path.with_stem(input_path.stem + "_formatted")
+		else:
+			output_path = Path(f"{ticker}_{quarter}{year}_transcript.txt")
+
+		# Save
+		with open(output_path, 'w', encoding='utf-8') as f:
+			f.write(final_transcript)
+
+		click.echo("\n" + "="*70)
+		click.echo("✓ TRANSCRIPT PREPARATION COMPLETE!")
+		click.echo("="*70)
+		click.echo(f"Formatted transcript saved to: {output_path}")
+		click.echo("\nNext steps:")
+		click.echo(f"   1. Review the transcript: cat {output_path}")
+		click.echo(f"   2. Run analysis: python cli.py analyze {output_path} --summary")
+		click.echo("="*70)
+
+
 @cli.command()
 def config():
 	"""Show current configuration"""
