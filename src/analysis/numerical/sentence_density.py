@@ -315,7 +315,9 @@ class SentenceLevelDensityAnalyzer:
 			sentence_metrics.numeric_sparse_sentences
 		)
 
-		numeric_inclusion_ratio = numeric_sentences / sentence_metrics.total_sentences if sentence_metrics.total_sentences > 0 else 0.0
+		# Use substantive_sentences as denominator to align with definition
+		# Guard against zero-division when transcript is entirely narrative
+		numeric_inclusion_ratio = numeric_sentences / substantive_sentences if substantive_sentences > 0 else 0.0
 
 		# Get guidance and results density from existing scores
 		guidance_density = numerical_scores.forward_looking_density
