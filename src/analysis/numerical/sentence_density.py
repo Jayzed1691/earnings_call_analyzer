@@ -78,7 +78,7 @@ class DistributionPattern:
 class InformativenessMetrics:
 	"""Metrics relating numeric content to informativeness and forecast relevance"""
 	# Core metric - Numeric Inclusion Ratio
-	numeric_inclusion_ratio: float  # 0-1, % of substantive sentences with numbers
+	numeric_inclusion_ratio: float  # 0-1, % of all sentences that contain numbers
 
 	# Component metrics
 	guidance_numeric_density: float  # Forward-looking numeric content
@@ -306,18 +306,17 @@ class SentenceLevelDensityAnalyzer:
 		Returns:
 			InformativenessMetrics
 		"""
-		# Numeric Inclusion Ratio: % of substantive sentences with numbers
-		# Exclude very short sentences (< 5 words)
-		substantive_sentences = sentence_metrics.total_sentences - sentence_metrics.narrative_sentences
+		# Numeric Inclusion Ratio: % of all sentences that contain numbers
+		# This measures the prevalence of numeric content across the entire transcript.
+		# Since sentences are classified as dense/moderate/sparse (numeric) or narrative (non-numeric),
+		# this ratio reflects what proportion of the call includes quantitative information.
 		numeric_sentences = (
 			sentence_metrics.numeric_dense_sentences +
 			sentence_metrics.numeric_moderate_sentences +
 			sentence_metrics.numeric_sparse_sentences
 		)
 
-		# Use substantive_sentences as denominator to align with definition
-		# Guard against zero-division when transcript is entirely narrative
-		numeric_inclusion_ratio = numeric_sentences / substantive_sentences if substantive_sentences > 0 else 0.0
+		numeric_inclusion_ratio = numeric_sentences / sentence_metrics.total_sentences if sentence_metrics.total_sentences > 0 else 0.0
 
 		# Get guidance and results density from existing scores
 		guidance_density = numerical_scores.forward_looking_density
